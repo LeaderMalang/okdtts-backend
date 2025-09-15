@@ -29,7 +29,7 @@ DEBUG = True
 ENV= 'live'  # Set to 'production' in production environment
 LOGIN_URL = "/auth/login/"
 ALLOWED_HOSTS = ["207.180.252.117", "localhost","127.0.0.1","erp.okdtts.com"]
-CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_CREDENTIALS = False
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",  # Add your frontend URL here
     "https://app.okdtts.com",
@@ -41,7 +41,7 @@ CORS_ALLOWED_ORIGINS = [
 CSRF_TRUSTED_ORIGINS = [
     "https://erp.okdtts.com",
     "http://erp.okdtts.com",     # optional if you ever hit plain http
-    "https://*.okdtts.com",    # alternative for all subdomains
+    "https://app.okdtts.com",    # alternative for all subdomains
 ]
 CORS_ALLOW_ALL_ORIGINS = True
 AUTH_USER_MODEL = "user.CustomUser"
@@ -93,6 +93,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
 ]
 
 ROOT_URLCONF = 'django_ledger_project.urls'
