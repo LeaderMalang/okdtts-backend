@@ -11,7 +11,7 @@ import pdfplumber
 
 from setting.models import City, Area
 from inventory.models import Party  # adjust if your Party app label is different
-from voucher.models import ChartOfAccount
+from hordak.models import Account
 import random
 AREA_HEADER = re.compile(
     r'^\s*(\d+)\s+([A-Za-z][A-Za-z\s\.\-&]+?)\s{2,}(\d+)\s+([A-Za-z][A-Za-z\s\.\-&]+)\s*$'

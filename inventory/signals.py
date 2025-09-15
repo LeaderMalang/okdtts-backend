@@ -61,8 +61,8 @@ def _auto_create_or_fix_hordak_account(sender, instance: Party, created: bool, *
         desired_code = f"{parent.code}-{instance.pk}"
         # code = _ensure_unique_child_code(parent, desired_code)
         acct = Account.objects.create(
-            name=f"{instance.name}",
-            code="-",
+            name=f"CUS{instance.id}",
+            code=f"{instance.id}",
             parent=parent,
             # currency=getattr(parent, "currency", "PKR"),
         )
