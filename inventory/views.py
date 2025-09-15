@@ -51,9 +51,9 @@ def inventory_levels(request):
 def product_list(request):
     """Return all products with camelCase keys."""
     q = (request.GET.get("q") or "").strip()
-    qs = (Product.objects.order_by("name"))
+    qs = (Product.objects.order_by("name").filter(disable_sale_purchase=False))
     if q:
-        qs = qs.filter(Q(name__icontains=q) | Q(barcode__icontains=q))
+        qs = qs.filter(Q(name__icontains=q) | Q(barcode__icontains=q) )
 
     paginator = MyCustomPagination()
     page = paginator.paginate_queryset(qs, request)
