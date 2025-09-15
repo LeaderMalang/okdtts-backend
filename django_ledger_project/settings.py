@@ -34,13 +34,14 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",  # Add your frontend URL here
     "https://app.okdtts.com",
     "https://erp.okdtts.com",
+    "https://*.okdtts.com", 
 
 ]
 
 CSRF_TRUSTED_ORIGINS = [
     "https://erp.okdtts.com",
     "http://erp.okdtts.com",     # optional if you ever hit plain http
-    # "https://*.okdtts.com",    # alternative for all subdomains
+    "https://*.okdtts.com",    # alternative for all subdomains
 ]
 CORS_ALLOW_ALL_ORIGINS = True
 AUTH_USER_MODEL = "user.CustomUser"
