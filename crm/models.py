@@ -1,5 +1,5 @@
 from django.db import models
-
+from hr.models import Employee
 
 
 class Lead(models.Model):
@@ -22,7 +22,7 @@ class Lead(models.Model):
         related_name="leads",
     )
     assigned_to = models.ForeignKey(
-        "hr.Employee",
+        Employee,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
