@@ -1,0 +1,53 @@
+{% extends "admin/change_form.html" %}
+{% load i18n %}
+{% load static %}
+
+
+{% block extrahead %}
+  {{ block.super }}
+  
+  <script>
+    window.PURCHASE_RETURN_INVOICE_JSON_BASE = "{% url 'admin:purchases_purchasereturn_invoice_data' 0 %}".replace(/0\/?$/, "");
+  </script>
+{% endblock %}
+
+{% block object-tools-items %}
+  {{ block.super }}
+  {% if original.pk %}
+    <li>
+      <form method="post" action="{% url 'admin:purchases_purchasereturn_confirm' original.pk %}">
+        {% csrf_token %}
+        <button type="submit" class="button">Confirm</button>
+      </form>
+    </li>
+    <li>
+      <form method="post" action="{% url 'admin:purchases_purchasereturn_returned' original.pk %}">
+        {% csrf_token %}
+        <button type="submit" class="button">Mark Returned</button>
+      </form>
+    </li>
+    <li>
+      <a class="button" href="{% url 'admin:purchases_purchasereturn_settle_breakdown_obj' original.pk %}">
+        Settle (Refund/Credit)…
+      </a>
+    </li>
+    <li>
+      <form method="post" action="{% url 'admin:purchases_purchasereturn_refund' original.pk %}">
+        {% csrf_token %}
+        <button type="submit" class="button">Refund Outstanding</button>
+      </form>
+    </li>
+    <li>
+      <form method="post" action="{% url 'admin:purchases_purchasereturn_credited' original.pk %}">
+        {% csrf_token %}
+        <button type="submit" class="button">Mark Credited</button>
+      </form>
+    </li>
+    <li>
+      <form method="post" action="{% url 'admin:purchases_purchasereturn_cancel' original.pk %}">
+        {% csrf_token %}
+        <button type="submit" class="button">Cancel (Draft)</button>
+      </form>
+    </li>
+  {% endif %}
+{% endblock %}

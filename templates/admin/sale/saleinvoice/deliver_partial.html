@@ -1,0 +1,15 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+{% block content %}
+  <!-- <h1>{% trans "Deliver (Partial)" %} – {{ original.invoice_no }}</h1> -->
+  <form method="post" novalidate>
+    {% csrf_token %}
+    <div class="module">
+      <table>{{ form.as_table }}</table>
+    </div>
+    <div class="submit-row">
+      <button type="submit" class="default">{% trans "Deliver now" %}</button>
+      <a href="{% url 'admin:sale_saleinvoice_change' original.pk %}" class="button cancel-link">{% trans "Cancel" %}</a>
+    </div>
+  </form>
+{% endblock %}

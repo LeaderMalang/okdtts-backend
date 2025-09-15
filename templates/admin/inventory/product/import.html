@@ -1,0 +1,16 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block content %}
+  <h1>{{ title }}</h1>
+  <p>Upload an Excel file (.xlsx) with columns:</p>
+  <pre>Name | Barcode | Company | Group | Distributor | Trade Price | Retail Price | Sales Tax Ratio | FED Tax Ratio | Packing | E RATE</pre>
+  <p><strong>Rule:</strong> If <em>E RATE</em> is empty or 0, the product will be marked <code>disable_sale_purchase=True</code>.</p>
+
+  <form method="post" enctype="multipart/form-data" novalidate>
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button type="submit" class="default">{% trans "Import" %}</button>
+    <a class="button" href="{% url 'admin:inventory_product_changelist' %}">{% trans "Back" %}</a>
+  </form>
+{% endblock %}

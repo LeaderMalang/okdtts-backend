@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container-fluid px-4 py-3">
+  <h4 class="fw-bold text-primary mb-4">Sales</h4>
+  <form method="post">
+    {% csrf_token %}
+
+    <!-- Basic Info Card -->
+    <div class="card mb-4">
+      <div class="card-body">
+        <div class="row g-3">
+          <div class="col-md-3">
+            <label class="form-label">Ref No.</label>
+            <input type="text" class="form-control bg-light" value="Auto generated" readonly>
+          </div>
+          <div class="col-md-3">{{ form.date.label_tag }} {{ form.date }}</div>
+          <div class="col-md-3">{{ form.customer.label_tag }} {{ form.customer }}</div>
+          <div class="col-md-3">{{ form.warehouse.label_tag }} {{ form.warehouse }}</div>
+          <div class="col-md-3">{{ form.salesman.label_tag }} {{ form.salesman }}</div>
+          <div class="col-md-3">{{ form.booking_man_id.label_tag }} {{ form.booking_man_id }}</div>
+          <div class="col-md-3">{{ form.supplying_man_id.label_tag }} {{ form.supplying_man_id }}</div>
+          <div class="col-md-3">{{ form.delivery_man_id.label_tag }} {{ form.delivery_man_id }}</div>
+          <div class="col-md-3">{{ form.city_id.label_tag }} {{ form.city_id }}</div>
+          <div class="col-md-3">{{ form.area_id.label_tag }} {{ form.area_id }}</div>
+          <div class="col-md-2">{{ form.sub_total.label_tag }} {{ form.sub_total }}</div>
+          <div class="col-md-2">{{ form.tax.label_tag }} {{ form.tax }}</div>
+          <div class="col-md-2">{{ form.qr_code.label_tag }} {{ form.qr_code }}</div>
+          <div class="col-md-2">{{ form.total_amount.label_tag }} {{ form.total_amount }}</div>
+          <div class="col-md-2">{{ form.discount.label_tag }} {{ form.discount }}</div>
+          <div class="col-md-2">{{ form.net_amount.label_tag }} {{ form.net_amount }}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Item Table -->
+    <div class="card shadow-sm">
+      <div class="card-header bg-primary text-white fw-bold">Items</div>
+      <div class="card-body p-0">
+        {{ formset.management_form }}
+        <table class="table table-bordered m-0" id="item-table">
+          <thead class="table-light text-center">
+            <tr>
+              <th>Product</th>
+              <th>Batch</th>
+              <th>Qty</th>
+              <th>Rate</th>
+              <th>Amount</th>
+              <th>Remove</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item_form in formset %}
+            <tr class="item-row">
+              <td>{{ item_form.product }}</td>
+              <td><select class="form-select batch-select"><option value="">--</option></select></td>
+              <td>{{ item_form.quantity }}</td>
+              <td>{{ item_form.price }}</td>
+              <td>{{ item_form.amount }}</td>
+              <td class="text-center">{{ item_form.DELETE }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="card-footer d-flex justify-content-between">
+        <button type="button" class="btn btn-outline-primary" id="add-item-btn">+ Add Product</button>
+      </div>
+    </div>
+
+    <div class="mt-4 d-flex justify-content-end gap-2">
+      <a href="{% url 'sale_list' %}" class="btn btn-secondary">Cancel</a>
+      <button type="submit" class="btn btn-success">Save</button>
+    </div>
+  </form>
+</div>
+
+<!-- JS for batch & calculations -->
+<script>
+  // Sample batch and price map
+  const batchData = {
+    '1': [{'batch': 'B001', 'price': 50}, {'batch': 'B002', 'price': 55}],
+    '2': [{'batch': 'A101', 'price': 30}],
+  };
+
+  function updateBatchOptions(row, productId) {
+    const batchSelect = row.querySelector('.batch-select');
+    batchSelect.innerHTML = '<option value="">--</option>';
+    if (batchData[productId]) {
+      batchData[productId].forEach(b => {
+        const opt = document.createElement('option');
+        opt.value = b.batch;
+        opt.text = `${b.batch} @ ${b.price}`;
+        batchSelect.appendChild(opt);
+      });
+    }
+  }
+
+  function setupRowEvents(row) {
+    const productSelect = row.querySelector('select[name$="product"]');
+    const qtyInput = row.querySelector('input[name$="quantity"]');
+    const priceInput = row.querySelector('input[name$="price"]');
+    const amountInput = row.querySelector('input[name$="amount"]');
+    const batchSelect = row.querySelector('.batch-select');
+
+    if (productSelect) {
+      productSelect.addEventListener('change', () => {
+        updateBatchOptions(row, productSelect.value);
+      });
+    }
+
+    if (qtyInput && priceInput && amountInput) {
+      [qtyInput, priceInput].forEach(el => {
+        el.addEventListener('input', () => {
+          const qty = parseFloat(qtyInput.value) || 0;
+          const rate = parseFloat(priceInput.value) || 0;
+          amountInput.value = (qty * rate).toFixed(2);
+        });
+      });
+    }
+  }
+
+  // Add new formset row
+  document.getElementById('add-item-btn').addEventListener('click', () => {
+    const table = document.querySelector('#item-table tbody');
+    const totalForms = document.getElementById('id_form-TOTAL_FORMS');
+    const currentCount = parseInt(totalForms.value);
+    const emptyRow = table.querySelector('tr').cloneNode(true);
+    emptyRow.querySelectorAll('input, select').forEach(input => {
+      const name = input.name.replace(/-\d+-/, `-${currentCount}-`);
+      const id = input.id.replace(/-\d+-/, `-${currentCount}-`);
+      input.name = name;
+      input.id = id;
+      if (input.type === 'text' || input.tagName === 'SELECT') input.value = '';
+      if (input.type === 'checkbox') input.checked = false;
+    });
+    table.appendChild(emptyRow);
+    totalForms.value = currentCount + 1;
+    setupRowEvents(emptyRow);
+  });
+
+  document.querySelectorAll('.item-row').forEach(setupRowEvents);
+</script>
+{% endblock %}

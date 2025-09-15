@@ -1,0 +1,48 @@
+{% extends "admin/base_site.html" %}
+{% load i18n static %}
+
+{% block content %}
+  <div class="module">
+    <!-- <h1>{{ title }}</h1> -->
+    <p>
+      <strong>Return #:</strong> {{ pr.return_no }} &middot;
+      <strong>Supplier:</strong> {{ pr.supplier }} &middot;
+      <strong>Total:</strong> {{ total }} &middot;
+      <strong>Already Refunded:</strong> {{ already }} &middot;
+      <strong>Outstanding:</strong> {{ outstanding }}
+    </p>
+
+    <form method="post" novalidate>
+      {% csrf_token %}
+      <input type="hidden" name="id" value="{{ pr_id }}" />
+      <table>
+        {{ form.as_table }}
+      </table>
+      <p style="margin-top: 12px;">
+        <input type="submit" class="default" value="{% trans 'Settle Now' %}">
+        <a href="{% url 'admin:purchase_purchasereturn_changelist' %}" class="button cancel">
+          {% trans 'Cancel' %}
+        </a>
+      </p>
+    </form>
+  </div>
+
+  <script>
+    (function() {
+      var outstanding = parseFloat("{{ outstanding }}");
+      var refund = document.getElementById("id_refund_amount");
+      var credit = document.getElementById("id_credit_amount");
+      function clamp2(n){ return Math.round(n * 100)/100; }
+      if (!refund || !credit) return;
+
+      refund.addEventListener("input", function() {
+        var r = parseFloat(refund.value || "0");
+        if (!isNaN(r)) credit.value = clamp2(outstanding - r).toFixed(2);
+      });
+      credit.addEventListener("input", function() {
+        var c = parseFloat(credit.value || "0");
+        if (!isNaN(c)) refund.value = clamp2(outstanding - c).toFixed(2);
+      });
+    })();
+  </script>
+{% endblock %}

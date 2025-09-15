@@ -1,0 +1,48 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block content %}
+  <!-- <h1>{{ title }}</h1> -->
+  <p>
+    <strong>Invoice:</strong> {{ inv.invoice_no }} &middot;
+    <strong>Supplier:</strong> {{ inv.supplier }} &middot;
+    <strong>Status:</strong> {{ inv.status }}
+  </p>
+
+  <form method="post" novalidate>
+    {% csrf_token %}
+    <table class="grp-table">
+      <thead>
+        <tr>
+          <th>Product</th>
+          <th>Outstanding</th>
+          <th>Receive Qty</th>
+          <th>Batch #</th>
+          <th>Expiry</th>
+          <th>Purchase Price</th>
+          <th>Sale Price</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{ formset.management_form }}
+        {% for form in formset %}
+          <tr>
+            <td>{{ form.product_label }}</td>
+            <td style="width:120px">{{ form.outstanding }}</td>
+            <td style="width:120px">{{ form.receive_qty }}</td>
+            {{ form.invoice_item_id }}
+            <td>{{ form.batch_number }}</td>
+            <td>{{ form.expiry_date }}</td>
+            <td>{{ form.purchase_price }}</td>
+            <td>{{ form.sale_price }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <p style="margin-top:12px">
+      <button type="submit" class="default">Post GRN</button>
+      <a href="{% url 'admin:purchase_purchaseinvoice_change' inv.pk %}" class="button cancel">Cancel</a>
+    </p>
+  </form>
+{% endblock %}

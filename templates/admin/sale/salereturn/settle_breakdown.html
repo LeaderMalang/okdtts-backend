@@ -1,0 +1,16 @@
+{# templates/admin/sale/salereturn/settle_breakdown.html #}
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+{% block content %}
+  <h1>{% trans "Settle Sales Return – Enter Refund/Credit" %}</h1>
+  <p><b>Return:</b> {{ sr.return_no }} — {{ sr.customer }} — {{ sr.date }}</p>
+  <p><b>Total:</b> {{ total }} &nbsp; <b>Already Cash Refunded:</b> {{ already }} &nbsp; <b>Outstanding:</b> {{ outstanding }}</p>
+  <form method="post" novalidate>
+    {% csrf_token %}
+    <div class="module"><table>{{ form.as_table }}</table></div>
+    <div class="submit-row">
+      <button type="submit" class="default">{% trans "Settle" %}</button>
+      <a href="{% url 'admin:sale_salereturn_change' sr.pk %}" class="button cancel-link">{% trans "Cancel" %}</a>
+    </div>
+  </form>
+{% endblock %}

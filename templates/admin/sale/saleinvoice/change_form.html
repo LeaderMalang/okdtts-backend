@@ -1,0 +1,19 @@
+{% extends "admin/change_form.html" %}
+{% load i18n %}
+{% block object-tools-items %}
+  {{ block.super }}
+  {% if original and original.pk %}
+    <li>
+      <form action="{% url 'admin:sale_saleinvoice_confirm' original.pk %}" method="post" style="display:inline">{% csrf_token %}
+        <button class="button" type="submit">{% trans "Confirm" %}</button>
+      </form>
+    </li>
+    <li>
+      <form action="{% url 'admin:sale_saleinvoice_deliver_all' original.pk %}" method="post" style="display:inline">{% csrf_token %}
+        <button class="button" type="submit">{% trans "Deliver (All Remaining)" %}</button>
+      </form>
+    </li>
+    <li><a class="button" href="{% url 'admin:sale_saleinvoice_deliver_partial' original.pk %}">{% trans "Deliver (Partial)" %}</a></li>
+    <li><a class="button" href="{% url 'admin:sale_saleinvoice_pay' original.pk %}">{% trans "Receive Payment" %}</a></li>
+  {% endif %}
+{% endblock %}

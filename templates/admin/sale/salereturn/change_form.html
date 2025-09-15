@@ -1,0 +1,29 @@
+{# templates/admin/sale/salereturn/change_form.html #}
+{% extends "admin/change_form.html" %}
+{% load i18n %}
+{% block object-tools-items %}
+  {{ block.super }}
+  {% if original and original.pk %}
+    <li>
+      <form action="{% url 'admin:sales_salereturn_confirm' original.pk %}" method="post" style="display:inline">{% csrf_token %}
+        <button class="button" type="submit">{% trans "Confirm" %}</button>
+      </form>
+    </li>
+    <li>
+      <form action="{% url 'admin:sales_salereturn_returned' original.pk %}" method="post" style="display:inline">{% csrf_token %}
+        <button class="button" type="submit">{% trans "Mark Returned (Stock In)" %}</button>
+      </form>
+    </li>
+    <li>
+      <form action="{% url 'admin:sales_salereturn_refund' original.pk %}" method="post" style="display:inline">{% csrf_token %}
+        <button class="button" type="submit">{% trans "Refund Outstanding (Cash)" %}</button>
+      </form>
+    </li>
+    <li>
+      <form action="{% url 'admin:sales_salereturn_credited' original.pk %}" method="post" style="display:inline">{% csrf_token %}
+        <button class="button" type="submit">{% trans "Mark Credited" %}</button>
+      </form>
+    </li>
+
+  {% endif %}
+{% endblock %}

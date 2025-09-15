@@ -1,0 +1,31 @@
+{% comment %} dashboard.html - Dashboard Page {% endcomment %}
+{% extends "base.html" %}
+{% block title %}Dashboard | PharmaSOFT{% endblock %}
+{% block content %}
+<h3 class="mb-4">Dashboard</h3>
+
+<div class="row g-4">
+  <div class="col-6 col-md-3 col-lg-2 text-center">
+    <a href="/invoices/sale/">
+      <div class="card">
+        <img src="/static/icons/sale.png" class="card-icon" alt="Sale">
+        <div class="card-body p-2">
+          <h6 class="card-title">Sales</h6>
+        </div>
+      </div>
+    </a>
+  </div>
+  <div class="col-6 col-md-3 col-lg-2 text-center">
+    <a href="/invoices/purchase/">
+      <div class="card">
+        <img src="/static/icons/purchase.png" class="card-icon" alt="Purchase">
+        <div class="card-body p-2">
+          <h6 class="card-title">Purchase</h6>
+        </div>
+      </div>
+    </a>
+  </div>
+  <!-- Repeat other invoice, voucher, report, and management items as per your uploaded image -->
+</div>
+
+{% endblock %}

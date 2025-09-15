@@ -1,0 +1,49 @@
+{% extends "admin/base_site.html" %}
+{% load i18n static %}
+
+{% block content %}
+  <div class="module">
+    <!-- <h1>{{ title }}</h1> -->
+    <p>
+      <strong>Invoice:</strong> {{ inv.invoice_no }} &middot;
+      <strong>Supplier:</strong> {{ inv.supplier }} &middot;
+      <strong>Total:</strong> {{ total }} &middot;
+      <strong>Cash Paid:</strong> {{ cash_paid }} &middot;
+      <strong>Credited:</strong> {{ credited }} &middot;
+      <strong>Outstanding:</strong> {{ outstanding }}
+    </p>
+
+    <form method="post" novalidate>
+      {% csrf_token %}
+      <input type="hidden" name="id" value="{{ inv_id }}" />
+      <table>
+        {{ form.as_table }}
+      </table>
+      <p style="margin-top: 12px;">
+        <input type="submit" class="default" value="{% trans 'Settle Now' %}">
+        <a href="{% url 'admin:purchase_purchaseinvoice_changelist' %}" class="button cancel">
+          {% trans 'Cancel' %}
+        </a>
+      </p>
+    </form>
+  </div>
+
+  <script>
+    (function() {
+      var outstanding = parseFloat("{{ outstanding }}");
+      var pay = document.getElementById("id_pay_amount");
+      var cred = document.getElementById("id_credit_amount");
+      function clamp2(n){ return Math.round(n * 100)/100; }
+      if (!pay || !cred) return;
+
+      pay.addEventListener("input", function() {
+        var p = parseFloat(pay.value || "0");
+        if (!isNaN(p)) cred.value = clamp2(outstanding - p).toFixed(2);
+      });
+      cred.addEventListener("input", function() {
+        var c = parseFloat(cred.value || "0");
+        if (!isNaN(c)) pay.value = clamp2(outstanding - c).toFixed(2);
+      });
+    })();
+  </script>
+{% endblock %}

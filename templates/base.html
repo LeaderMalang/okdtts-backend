@@ -1,0 +1,73 @@
+{% comment %} base.html - Main Layout {% endcomment %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}PharmaSOFT{% endblock %}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons/font/bootstrap-icons.css">
+    <style>
+        body {
+            font-family: 'Segoe UI', sans-serif;
+        }
+        .sidebar {
+            width: 220px;
+            background-color: #1e2a38;
+            min-height: 100vh;
+            color: white;
+        }
+        .sidebar a {
+            color: white;
+            text-decoration: none;
+            display: block;
+            padding: 12px 20px;
+        }
+        .sidebar a:hover {
+            background-color: #273849;
+        }
+        .topbar {
+            background-color: #2eaa72;
+            color: white;
+            padding: 10px 20px;
+        }
+        .main-content {
+            margin-left: 220px;
+            padding: 20px;
+        }
+        .card-icon {
+            width: 100px;
+            height: 100px;
+            object-fit: contain;
+            margin: auto;
+        }
+    </style>
+    {% block extra_head %}{% endblock %}
+</head>
+<body>
+<div class="d-flex">
+    <div class="sidebar">
+        <h5 class="text-center py-3">PharmaSOFT</h5>
+        <a href="/">Home</a>
+        <a href="/invoices/">Invoices</a>
+        <a href="/vouchers/">Vouchers</a>
+        <a href="/reports/">Reports</a>
+        <a href="/management/">Management</a>
+        <a href="/logout/">Logout</a>
+    </div>
+    <div class="w-100">
+        <div class="topbar d-flex justify-content-between">
+            <span><strong>PHARMA DISTRIBUTOR</strong></span>
+            <span><i class="bi bi-person-circle"></i> Admin</span>
+        </div>
+        <div class="main-content">
+            {% block content %}{% endblock %}
+        </div>
+    </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+{% block extra_scripts %}{% endblock %}
+</body>
+</html>
+
+

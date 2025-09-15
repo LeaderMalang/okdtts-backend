@@ -1,0 +1,5 @@
+<div class="invoice-header">
+  <h1>{{ invoice_type|default:"Invoice" }}</h1>
+  <p>Number: {{ invoice.invoice_no|default:invoice.return_no|default:invoice.id }}</p>
+  <p>Date: {{ invoice.date|default:invoice.month }}</p>
+</div>
