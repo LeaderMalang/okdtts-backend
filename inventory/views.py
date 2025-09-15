@@ -61,7 +61,7 @@ def product_list(request):
         {
             "id": p.id, "name": p.name, "barcode": p.barcode,
             "stock": p.stock or 0, "tradePrice": float(p.trade_price),
-            "retailPrice": float(p.retail_price),"image_1":p.image_1.url if p.image_1 else None,
+            "retailPrice": float(p.e_rate),"image_1":p.image_1.url if p.image_1 else None,
             "packing": p.packing,
             "image_2":p.image_2.url if p.image_2 else None,
             "salesTaxRatio": float(p.sales_tax_ratio),
