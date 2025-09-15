@@ -50,7 +50,7 @@ class Interaction(models.Model):
         Lead, on_delete=models.CASCADE, related_name="interactions"
     )
     employee = models.ForeignKey(
-        "hr.Employee",
+        Employee,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
