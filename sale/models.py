@@ -16,12 +16,13 @@ from setting.constants import TAX_PAYABLE_ACCOUNT_CODE
 from decimal import Decimal
 from django.db import transaction
 from utils.voucher import post_composite_sales_voucher,post_composite_sales_return_voucher
-logger = logging.getLogger(__name__)
 
+from finance.models_receipts import CustomerReceipt
 from hordak.models import Transaction
 from finance.hordak_posting import post_sale, post_customer_receipt,post_customer_refund,post_sale_return
 from django.core.exceptions import ValidationError
 from django.db.models import Sum
+logger = logging.getLogger(__name__)
 # Reuse your helper for selecting the warehouse cash/bank account
 def _cash_or_bank_for(warehouse):
     return warehouse.default_cash_account or warehouse.default_bank_account
@@ -140,6 +141,9 @@ class SaleInvoice(models.Model):
         self.hordak_txn = txn
         self.status = "CONFIRMED"
         self._recalc_payment_status()
+        if self.outstanding > 0:
+            self.customer.current_balance = (self.customer.current_balance or 0) + self.outstanding
+            self.customer.save(update_fields=["current_balance"])
         self.save(update_fields=[
             "invoice_no","total_amount","grand_total",
             "status","payment_status","hordak_txn"
@@ -159,13 +163,15 @@ class SaleInvoice(models.Model):
         if not _cash_or_bank_for(self.warehouse):
             raise ValidationError("No Cash/Bank account configured for this warehouse.")
 
-        post_customer_receipt(
-            date=self.date,
-            description=f"Payment for {self.invoice_no}",
-            customer_account=self.customer.chart_of_account,
-            amount=amt,
-            warehouse=self.warehouse,
+        rcpt = CustomerReceipt.objects.create(
+        date=self.date,
+        customer=self.customer,
+        warehouse=self.warehouse,
+        amount=amount,
+        description=f"Receipt for {self.invoice_no}",
         )
+        rcpt.post()                # GL: DR cash, CR A/R; Party.current_balance -= amount
+        rcpt.allocate(self, amount)
         self.paid_amount = (Decimal(self.paid_amount or 0) + amt)
         self._recalc_payment_status()
         self.save(update_fields=["paid_amount","payment_status"])
@@ -240,6 +246,9 @@ class SaleInvoiceItem(models.Model):
 
     # Track partial deliveries
     delivered_qty = models.PositiveIntegerField(default=0)
+    @property
+    def remaining_to_deliver(self) -> int:
+        return max(int(self.quantity or 0) - int(self.delivered_qty or 0), 0)
 
     @property
     def total_ordered(self) -> int:

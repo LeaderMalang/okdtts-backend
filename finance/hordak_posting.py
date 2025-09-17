@@ -9,15 +9,16 @@ from contextlib import contextmanager
 
 
 # You can keep these codes in settings
-PURCHASE_ACCT_CODE      = "5001"  # Expense/COGS or Inventory, per your COA
-SALES_ACCT_CODE         = "4001"
-SALES_RETURN_ACCT_CODE  = "4005"  # Sales Returns & Allowances (Income contra) or Expense, your choice
-PUR_TAX_REC_CODE        = "1300"  # Input tax (Asset)
-SAL_TAX_PAY_CODE        = "2100"  # Output tax (Liability)
-AR_CODE                 = "1003"  # Accounts Receivable (Asset)
-AP_CODE                 = "2001"  # Accounts Payable  (Liability)
-CASH_CODE               = "1001"  # Cash (Asset)
-BANK_CODE               = "1002"  # Bank (Asset)
+OPENING_EQUITY_CODE = 11 # Equity
+PURCHASE_ACCT_CODE      = 15  # Expense/COGS or Inventory, per your COA
+SALES_ACCT_CODE         = 13
+SALES_RETURN_ACCT_CODE  = 16  # Sales Returns & Allowances (Income contra) or Expense, your choice
+PUR_TAX_REC_CODE        = 6 # Input tax (Asset)
+SAL_TAX_PAY_CODE        = 9  # Output tax (Liability)
+AR_CODE                 = 4  # Accounts Receivable (Asset)
+AP_CODE                 = 8  # Accounts Payable  (Liability)
+CASH_CODE               = 2  # Cash (Asset)
+BANK_CODE               = 3  # Bank (Asset)
 DEFAULT_CCY = getattr(settings, "DEFAULT_CURRENCY", "PKR")
 
 
@@ -57,8 +58,27 @@ def _cash_or_bank(warehouse):
 def _acct(obj_or_code):
     if isinstance(obj_or_code, Account):
         return obj_or_code
-    return Account.objects.get(code=obj_or_code)
+    return Account.objects.get(id=obj_or_code)
 
+
+
+@transaction.atomic
+def post_ar_opening(*, date, description, customer_account, amount):
+    """
+    Opening receivable (customer owes us):
+      DR Accounts Receivable
+      CR Opening Equity
+    """
+    amount = Decimal(amount or 0)
+    if amount <= 0:
+        raise ValueError("Opening amount must be > 0")
+    ar   = _acct(customer_account)
+    eq   = _acct(OPENING_EQUITY_CODE)
+
+    with hordak_tx(description, posted_at=date) as txn:
+        Leg.objects.create(transaction=txn, account=ar, debit=as_money(amount, ar))
+        Leg.objects.create(transaction=txn, account=eq, credit=as_money(amount, eq))
+        return txn
 @transaction.atomic
 def post_purchase(*, date, description, total, discount=Decimal("0"), tax=Decimal("0"),
                   supplier_account, warehouse_purchase_account=None,

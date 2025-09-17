@@ -1,0 +1,58 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block content %}
+  <div class="content">
+    <h1>{% trans "Post Opening Balance (A/R)" %}</h1>
+
+    <form method="post" novalidate>
+      {% csrf_token %}
+      <fieldset class="module aligned">
+        <div class="form-row">
+          <div>
+            <div class="flex-container">
+              <label class="required">{% trans "Date" %}</label>
+              {{ form.date }}
+              {% if form.date.errors %}<div class="errors">{{ form.date.errors }}</div>{% endif %}
+            </div>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div>
+            <div class="flex-container">
+              <label class="required">{% trans "Customer" %}</label>
+              {{ form.customer }}
+              {% if form.customer.errors %}<div class="errors">{{ form.customer.errors }}</div>{% endif %}
+            </div>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div>
+            <div class="flex-container">
+              <label class="required">{% trans "Amount" %}</label>
+              {{ form.amount }}
+              <p class="help">{{ form.amount.help_text }}</p>
+              {% if form.amount.errors %}<div class="errors">{{ form.amount.errors }}</div>{% endif %}
+            </div>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div>
+            <div class="flex-container">
+              <label>{% trans "Note" %}</label>
+              {{ form.note }}
+              {% if form.note.errors %}<div class="errors">{{ form.note.errors }}</div>{% endif %}
+            </div>
+          </div>
+        </div>
+      </fieldset>
+
+      <div class="submit-row">
+        <input type="submit" value="{% trans 'Post Opening Balance' %}" class="default">
+      </div>
+    </form>
+  </div>
+{% endblock %}

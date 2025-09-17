@@ -12,18 +12,7 @@ __pycache__/
 **/__pycache__/
 *.pyc
 
-!crm/migrations
-!task/migrations
-!notification/migrations
-!pricing/migrations
-!expense/migrations
-!investor/migrations
-!syncqueue/migrations
-!user/migrations
-!purchase/migrations
-!sale/migrations
-!finance/migrations
-!ecommerce/migrations
+
 **/__pycache__/
 /static/
 

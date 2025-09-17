@@ -12,6 +12,7 @@ from .views import (
     RecoveryLogViewSet,
     add_recovery_payment,
     add_recovery_note,
+    SaleInvoiceViewSetLatest
 )
 
 router = DefaultRouter()
@@ -19,7 +20,7 @@ router.register(r'invoices', SaleInvoiceViewSet)
 router.register(r'returns', SaleReturnViewSet)
 router.register(r'return-items', SaleReturnItemViewSet)
 router.register(r'recovery-logs', RecoveryLogViewSet)
-
+router.register(r"sale-invoices", SaleInvoiceViewSetLatest, basename="sale-invoice")
 urlpatterns = router.urls + [
     path('', sale_invoice_list, name='sale_list'),
     path('create/', sale_invoice_create, name='sale_create'),
