@@ -63,6 +63,62 @@ def _acct(obj_or_code):
 
 
 @transaction.atomic
+def post_reverse_customer_receipt_partial(*, date, description, customer_account, cash_or_bank_account, amount):
+    """
+    Reverse part (or all) of a posted customer receipt:
+      Original receipt:
+        DR Cash/Bank  amount
+        CR A/R        amount
+      Reversal:
+        DR A/R        amount
+        CR Cash/Bank  amount
+    """
+    amount = Decimal(amount or 0)
+    if amount <= 0:
+        return None
+    ar = _acct(customer_account)
+    cash = _acct(cash_or_bank_account)
+
+    txn = Transaction.objects.create(date=date, description=description or "Reverse Customer Receipt")
+    Leg.objects.create(transaction=txn, account=ar,   debit=as_money(amount, ar))
+    Leg.objects.create(transaction=txn, account=cash, credit=as_money(amount, cash))
+    return txn
+
+
+@transaction.atomic
+def post_cancel_sale(*, date, description, subtotal, tax, customer_account, warehouse_sales_account=None):
+    """
+    Reverse the accounting of a CONFIRMED sales invoice (no cash effect).
+    Original confirm posted:
+        DR A/R (grand)
+        CR Sales (subtotal)
+        CR Output Tax Payable (tax)
+    This reversal posts:
+        DR Sales               subtotal
+        DR Tax Payable         tax
+        CR A/R                 grand
+    """
+    subtotal = Decimal(subtotal or 0)
+    tax      = Decimal(tax or 0)
+    grand    = subtotal + tax
+    if grand <= 0:
+        return None
+
+    sales   = _acct(warehouse_sales_account or SALES_ACCT_CODE)
+    tax_pay = _acct(SAL_TAX_PAY_CODE) if tax > 0 else None
+    ar      = _acct(customer_account)
+
+    with hordak_tx(description, posted_at=date or timezone.now().date()) as txn:
+        # DR Sales (reverse revenue)
+        Leg.objects.create(transaction=txn, account=sales, debit=as_money(subtotal, sales))
+        # DR Output VAT (reverse liability)
+        if tax_pay:
+            Leg.objects.create(transaction=txn, account=tax_pay, debit=as_money(tax, tax_pay))
+        # CR A/R (remove receivable)
+        Leg.objects.create(transaction=txn, account=ar, credit=as_money(grand, ar))
+        return txn
+    
+@transaction.atomic
 def post_ar_opening(*, date, description, customer_account, amount):
     """
     Opening receivable (customer owes us):

@@ -19,9 +19,10 @@ from utils.voucher import post_composite_sales_voucher,post_composite_sales_retu
 
 from finance.models_receipts import CustomerReceipt
 from hordak.models import Transaction
-from finance.hordak_posting import post_sale, post_customer_receipt,post_customer_refund,post_sale_return
+from finance.hordak_posting import post_sale, post_customer_receipt,post_customer_refund,post_sale_return,post_cancel_sale,post_reverse_customer_receipt_partial
 from django.core.exceptions import ValidationError
 from django.db.models import Sum
+from finance.models_receipts import CustomerReceiptAllocation
 logger = logging.getLogger(__name__)
 # Reuse your helper for selecting the warehouse cash/bank account
 def _cash_or_bank_for(warehouse):
@@ -223,7 +224,111 @@ class SaleInvoice(models.Model):
         """Deliver everything that remains."""
         qmap = {li.id: li.remaining_to_deliver for li in self.items.all() if li.remaining_to_deliver > 0}
         self.deliver_partial(qmap)
+    @transaction.atomic
+    def cancel(self, *, reason: str = ""):
+        """
+        Cancel even if receipts/allocations exist.
+        Steps:
+          1) Reverse any delivered stock (put it back).
+          2) For each receipt allocation to this invoice, post a reversing receipt txn
+             (DR A/R, CR Cash) for the allocated amount ONLY, update the receipt numbers,
+             delete the allocation; if the receipt becomes empty, delete the receipt record.
+          3) Reverse the sale confirm journal (DR Sales, DR Tax, CR A/R).
+          4) Adjust Party.current_balance: +reversed_receipts - grand_total_at_confirm.
+          5) Mark invoice CANCELLED, zero out paid fields.
+        """
+        if self.status == "CANCELLED":
+            return
 
+        # ---------- 1) reverse delivered stock ----------
+        delivered_lines = list(self.items.all())
+        for li in delivered_lines:
+            qty_del = int(getattr(li, "delivered_qty", 0) or 0)
+            if qty_del > 0:
+
+                stock_return(
+                    product=li.product,
+                    batch_number=li.batch.batch_number if getattr(li, "batch", None) else "",
+                    quantity=qty_del,
+                    reason=f"Cancel Sales {self.invoice_no}",
+                )
+                li.delivered_qty = 0
+                li.save(update_fields=["delivered_qty"])
+
+        # ---------- 2) reverse receipts allocated to this invoice ----------
+        # group allocations by receipt
+        allocs = (
+            CustomerReceiptAllocation.objects
+            .select_related("receipt")
+            .filter(invoice=self)
+        )
+        reversed_receipts_total = Decimal("0.00")
+        cash_or_bank = getattr(self.warehouse, "default_cash_account", None) or getattr(self.warehouse, "default_bank_account", None)
+        if not cash_or_bank:
+            raise ValidationError("No Cash/Bank account configured for this warehouse (needed to reverse receipts).")
+
+        by_receipt = {}
+        for a in allocs:
+            by_receipt.setdefault(a.receipt_id, {"receipt": a.receipt, "amount": Decimal("0.00"), "rows": []})
+            by_receipt[a.receipt_id]["amount"] += Decimal(a.amount or 0)
+            by_receipt[a.receipt_id]["rows"].append(a)
+
+        for rid, pack in by_receipt.items():
+            rcpt = pack["receipt"]
+            amt_to_reverse = pack["amount"]
+            if amt_to_reverse <= 0:
+                continue
+
+            # post reversing GL (DR A/R, CR Cash) for just the allocated amount
+            post_reverse_customer_receipt_partial(
+                date=self.date,
+                description=f"Reverse Receipt {rcpt.number} (cancel {self.invoice_no})",
+                customer_account=self.customer.chart_of_account,
+                cash_or_bank_account=cash_or_bank,
+                amount=amt_to_reverse,
+            )
+            reversed_receipts_total += amt_to_reverse
+
+            # delete allocations rows for this invoice
+            CustomerReceiptAllocation.objects.filter(id__in=[r.id for r in pack["rows"]]).delete()
+
+            # shrink or delete the receipt record (we're NOT keeping any advance)
+            rcpt.amount = Decimal(rcpt.amount or 0) - amt_to_reverse
+            rcpt.unallocated_amount = max(Decimal(rcpt.unallocated_amount or 0) - amt_to_reverse, Decimal("0"))
+            rcpt.save(update_fields=["amount", "unallocated_amount"])
+
+            if rcpt.amount <= 0 and rcpt.allocations.count() == 0 and rcpt.unallocated_amount <= 0:
+                # nuke the receipt record itself (accounting already reversed above)
+                rcpt.delete()
+
+        # ---------- 3) reverse sale confirm journal ----------
+        # What we posted at confirm was subtotal=(total_amount - discount), tax=self.tax
+        base_subtotal = Decimal(self.total_amount or 0) - Decimal(self.discount or 0)
+        tax_amount = Decimal(self.tax or 0)
+        post_cancel_sale(
+            date=self.date,
+            description=f"Reverse Sales {self.invoice_no} (cancel)",
+            subtotal=base_subtotal,
+            tax=tax_amount,
+            customer_account=self.customer.chart_of_account,
+            warehouse_sales_account=self.warehouse.default_sales_account,
+        )
+
+        # ---------- 4) fix customer's running balance ----------
+        # At confirm we increased by grand_total.
+        # Each receipt originally decreased by its posted amount; we just reversed those -> increase by same.
+        # Net effect to return to pre-invoice state:  + reversed_receipts_total  - grand_total
+        grand_total_now = Decimal(self.grand_total or 0)
+        delta = reversed_receipts_total - grand_total_now
+        if delta:
+            self.customer.current_balance = (self.customer.current_balance or 0) + delta
+            self.customer.save(update_fields=["current_balance"])
+
+        # ---------- 5) finalize invoice fields ----------
+        self.paid_amount = Decimal("0.00")
+        self.payment_status = "UNPAID"
+        self.status = "CANCELLED"
+        self.save(update_fields=["paid_amount", "payment_status", "status"])
     # Keep same invoice number from first save
     def save(self, *args, **kwargs):
         if self.pk is None and not self.invoice_no:

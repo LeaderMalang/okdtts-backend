@@ -3,6 +3,9 @@ from rest_framework import serializers
 from decimal import Decimal
 from finance.models_receipts import CustomerReceipt, CustomerReceiptAllocation
 from sale.models import SaleInvoice
+from inventory.models import Party
+from setting.models import Warehouse
+from django.db import transaction
 
 class OpeningBalanceSerializer(serializers.Serializer):
     date = serializers.DateField()
@@ -46,3 +49,27 @@ class CustomerReceiptReadSerializer(serializers.ModelSerializer):
             {"invoice": a.invoice_id, "invoice_no": a.invoice.invoice_no, "amount": str(a.amount)}
             for a in obj.allocations.select_related("invoice")
         ]
+
+
+
+class CustomerReceiptCreateSerializer(serializers.Serializer):
+    date = serializers.DateField()
+    customer_id = serializers.IntegerField()
+    warehouse_id = serializers.IntegerField()
+    amount = serializers.DecimalField(max_digits=12, decimal_places=2)
+    description = serializers.CharField(required=False, allow_blank=True)
+
+    @transaction.atomic
+    def create(self, validated):
+        customer = Party.objects.get(pk=validated["customer_id"])
+        wh = Warehouse.objects.get(pk=validated["warehouse_id"])
+        receipt = CustomerReceipt.objects.create(
+            date=validated["date"],
+            customer=customer,
+            warehouse=wh,
+            amount=validated["amount"],
+            description=validated.get("description", ""),
+        )
+        # immediately post to ledger and set full unallocated
+        receipt.post()
+        return {"receipt_id": receipt.id, "number": receipt.number, "unallocated": str(receipt.unallocated_amount)}

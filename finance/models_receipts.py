@@ -29,8 +29,11 @@ class CustomerReceipt(models.Model):
     @transaction.atomic
     def post(self):
         """Post to Hordak once. Also update Party.current_balance (reduce)."""
+         # ensure number is set
         if self.hordak_txn_id:
             return  # already posted
+        if not self.number:
+            self.number = self._next_number()
         txn = post_customer_receipt(
             date=self.date,
             description=self.description or f"Receipt {self.number or ''} ({self.customer})",
@@ -40,7 +43,9 @@ class CustomerReceipt(models.Model):
         )
         self.hordak_txn = txn
         self.unallocated_amount = Decimal(self.amount or 0)
-        self.save(update_fields=["hordak_txn", "unallocated_amount"])
+        # self.number = receiptNumber
+         # Save changes 
+        self.save(update_fields=["hordak_txn", "unallocated_amount","number"])
 
         # Decrease operational balance
         self.customer.current_balance = (self.customer.current_balance or 0) - Decimal(self.amount or 0)
@@ -48,26 +53,40 @@ class CustomerReceipt(models.Model):
 
     @transaction.atomic
     def allocate(self, invoice, amount: Decimal):
-        """Non-posting allocation: links a receipt to an invoice and updates invoice fields."""
+        """
+        Non-posting allocation: links a receipt portion to an invoice and updates invoice fields.
+        Does NOT create a new accounting txn (posting was done already in `post()`).
+        """
+        # lock both rows for safety
+        self_locked = CustomerReceipt.objects.select_for_update().get(pk=self.pk)
+        invoice = type(invoice).objects.select_for_update().get(pk=invoice.pk)
+
         amount = Decimal(amount or 0)
         if amount <= 0:
             raise ValidationError("Allocation must be > 0")
-        if amount > Decimal(self.unallocated_amount or 0):
+        if amount > Decimal(self_locked.unallocated_amount or 0):
             raise ValidationError("Allocation exceeds unallocated amount")
-        if invoice.customer_id != self.customer_id:
+        if invoice.customer_id != self_locked.customer_id:
             raise ValidationError("Invoice belongs to a different customer")
-        if invoice.payment_status == "PAID":
+        if getattr(invoice, "payment_status", None) == "PAID":
             raise ValidationError("Invoice already paid")
-        if amount > invoice.outstanding:
-            raise ValidationError(f"Allocation {amount} exceeds invoice outstanding {invoice.outstanding}")
 
-        # Create row and update figures
-        CustomerReceiptAllocation.objects.create(receipt=self, invoice=invoice, amount=amount)
-        self.unallocated_amount = Decimal(self.unallocated_amount or 0) - amount
-        self.save(update_fields=["unallocated_amount"])
+        # derive outstanding safely
+        grand_total = Decimal(getattr(invoice, "grand_total", 0) or 0)
+        paid_amount = Decimal(getattr(invoice, "paid_amount", 0) or 0)
+        outstanding = grand_total - paid_amount
+        if amount > outstanding:
+            raise ValidationError(f"Allocation {amount} exceeds invoice outstanding {outstanding}")
 
-        invoice.paid_amount = Decimal(invoice.paid_amount or 0) + amount
-        if invoice.paid_amount >= invoice.grand_total:
+        CustomerReceiptAllocation.objects.create(receipt=self_locked, invoice=invoice, amount=amount)
+
+        # update receipt
+        self_locked.unallocated_amount = Decimal(self_locked.unallocated_amount or 0) - amount
+        self_locked.save(update_fields=["unallocated_amount"])
+
+        # update invoice
+        invoice.paid_amount = paid_amount + amount
+        if invoice.paid_amount >= grand_total:
             invoice.payment_status = "PAID"
         elif invoice.paid_amount > 0:
             invoice.payment_status = "PARTIAL"

@@ -406,9 +406,16 @@ class SaleInvoiceViewSetLatest(viewsets.ModelViewSet):
         ser = PaymentSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
         amount = Decimal(ser.validated_data["amount"])
-        if amount <= 0 or amount > inv.outstanding:
-            return Response({"detail": "Invalid amount."}, status=400)
+        if inv.status not in {"CONFIRMED", "DELIVERED"}:
+            return Response({"detail": "Payments allowed only after CONFIRMED."}, status=400)
 
+        elif inv.outstanding <= 0:
+            return Response({"detail": "Invoice is already fully paid."}, status=400)
+        
+        elif amount <= 0 or amount > inv.outstanding:
+            return Response({"detail": "Invalid amount."}, status=400)
+        
+        
         rcpt = CustomerReceipt.objects.create(
             date=ser.validated_data["date"],
             customer=inv.customer,

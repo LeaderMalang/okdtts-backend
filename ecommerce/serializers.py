@@ -57,7 +57,9 @@ class OrderSerializer(serializers.ModelSerializer):
             "total_amount",
             "paid_amount",
             "address",
+            "sale_invoice",
             "items",
+
         ]
         extra_kwargs = {
             "salesman": {"required": False, "allow_null": True},

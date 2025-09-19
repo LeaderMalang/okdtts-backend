@@ -15,5 +15,8 @@
     </li>
     <li><a class="button" href="{% url 'admin:sale_saleinvoice_deliver_partial' original.pk %}">{% trans "Deliver (Partial)" %}</a></li>
     <li><a class="button" href="{% url 'admin:sale_saleinvoice_pay' original.pk %}">{% trans "Receive Payment" %}</a></li>
-  {% endif %}
+    <li><a style="color:red" class="button" href="{% url 'admin:sale_saleinvoice_cancel' original.pk %}">{% trans "Cancel" %}</a></li>
+  
+  
+    {% endif %}
 {% endblock %}

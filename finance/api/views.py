@@ -14,8 +14,9 @@ from sale.models import SaleInvoice
 from .serializers import (
     OpeningBalanceSerializer,
     CustomerReceiptWriteSerializer, CustomerReceiptReadSerializer,
-    ReceiptAllocationWriteSerializer
+    ReceiptAllocationWriteSerializer,CustomerReceiptCreateSerializer
 )
+from rest_framework import generics, permissions
 
 class CustomerReceiptViewSet(viewsets.ModelViewSet):
     queryset = CustomerReceipt.objects.all().select_related("customer", "warehouse").prefetch_related("allocations__invoice")
@@ -35,6 +36,14 @@ class CustomerReceiptViewSet(viewsets.ModelViewSet):
         inv = get_object_or_404(SaleInvoice.objects.select_related("customer"), pk=ser.validated_data["invoice"])
         rcpt.allocate(inv, Decimal(ser.validated_data["amount"]))
         return Response(CustomerReceiptReadSerializer(rcpt).data, status=200)
+
+
+
+
+class CustomerReceiptCreateView(generics.CreateAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = CustomerReceiptCreateSerializer
+
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])

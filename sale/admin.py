@@ -126,9 +126,21 @@ class SaleInvoiceAdmin(admin.ModelAdmin):
             path("<int:object_id>/deliver/",         self.admin_site.admin_view(self.obj_deliver_all_view),     name="sale_saleinvoice_deliver_all"),
             path("<int:object_id>/deliver-partial/", self.admin_site.admin_view(self.obj_deliver_partial_view), name="sale_saleinvoice_deliver_partial"),
             path("<int:object_id>/pay/",             self.admin_site.admin_view(self.obj_receive_payment_view), name="sale_saleinvoice_pay"),
+            path("<int:pk>/cancel/", self.admin_site.admin_view(self.cancel_view), name="sale_saleinvoice_cancel"),
         ]
         return my + urls
-
+    
+    def cancel_view(self, request, pk):
+        obj = self.get_object(request, pk)
+        if not obj:
+            messages.error(request, "Invoice not found.")
+            return redirect("admin:sale_saleinvoice_changelist")
+        try:
+            obj.cancel(reason="admin-button")
+            messages.success(request, f"Invoice {obj.invoice_no} cancelled and fully reversed.")
+        except Exception as e:
+            messages.error(request, f"Cancel failed: {e}")
+        return redirect(reverse("admin:sale_saleinvoice_change", args=[pk]))
     def obj_confirm_view(self, request, object_id):
         if request.method != "POST":
             return HttpResponseNotAllowed(["POST"])

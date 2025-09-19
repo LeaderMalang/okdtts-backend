@@ -24,7 +24,6 @@ class SaleInvoiceItemSerializer(serializers.ModelSerializer):
             "discount1",
             "discount2",
             "amount",
-            "net_amount",
             "bid_amount",
         ]
 
@@ -45,20 +44,15 @@ class SaleInvoiceSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "invoice_no",
-            "company_invoice_number",
             "date",
             "customer",
             "warehouse",
             "booking_man_id",
             "delivery_man_id",
-            "city_id",
-            "area_id",
             "discount",
             "tax",
             "paid_amount",
             "grand_total",
-            "net_amount",
-            "payment_method",
             "payment_term",
             "status",
             "qr_code",
@@ -67,7 +61,7 @@ class SaleInvoiceSerializer(serializers.ModelSerializer):
             "payment_schedules",
             "total_amount",
         ]
-        read_only_fields = ("grand_total", "net_amount")
+        read_only_fields = ("grand_total",)
 
     def create(self, validated_data):
         items_data = validated_data.pop("items", [])
@@ -100,10 +94,7 @@ class SaleReturnItemSerializer(serializers.ModelSerializer):
             "expiry_date",
             "quantity",
             "rate",
-            "discount1",
-            "discount2",
             "amount",
-            "net_amount",
         ]
 
 

@@ -6,7 +6,7 @@ from .models import Order
 from .serializers import OrderSerializer
 from sale.serializers import SaleInvoiceSerializer
 from setting.models import Warehouse
-
+from sale.models import SaleInvoice
 
 class OrderViewSet(viewsets.ModelViewSet):
     lookup_field = "pk"
@@ -74,11 +74,10 @@ class OrderViewSet(viewsets.ModelViewSet):
     def confirm(self, request, pk=None):
         order = self.get_object()
         warehouse = Warehouse.objects.get(pk=request.data.get("warehouse"))
-        payment_method = request.data.get("payment_method")
-        payment_terms = request.data.get("payment_terms")
-        invoice = order.confirm(warehouse, payment_method,payment_terms)
+        invoice = order.confirm(warehouse)
         serializer = SaleInvoiceSerializer(invoice)
         return Response(serializer.data)
+    
     @action(detail=True, methods=["patch"], url_path="status")
     def set_status(self, request, pk=None):
         """
@@ -101,19 +100,22 @@ class OrderViewSet(viewsets.ModelViewSet):
                 )
             new_status = allowed[new_status.upper()]
 
-        # Persist
-        fields_to_update = ["status"]
-        order.status = new_status
+        if new_status=="Confirmed":
+            # Persist
+            fields_to_update = ["status"]
+            order.status = new_status
+            warehouse = Warehouse.objects.get(pk=1)
+            order.confirm(warehouse=warehouse)
+        elif new_status == "Cancelled":
+            fields_to_update = ["status"]
+            order.status = new_status
+            sale=SaleInvoice.objects.get(pk=order.sale_invoice_id)
+            sale.cancel(reason="Cancelled via API")
 
-        # # Optional note/audit, only if your model has such field(s)
-        # note = request.data.get("note")
-        # if hasattr(order, "status_note") and note:
-        #     order.status_note = str(note)
-        #     fields_to_update.append("status_note")
-        # if hasattr(order, "status_changed_at"):
-        #     from django.utils import timezone
-        #     order.status_changed_at = timezone.now()
-        #     fields_to_update.append("status_changed_at")
+       
+        elif new_status =="Completed":
+            fields_to_update = ["status"]
+            order.status = new_status
 
         order.save(update_fields=fields_to_update)
         return Response(self.get_serializer(order).data)

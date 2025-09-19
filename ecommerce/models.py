@@ -87,7 +87,7 @@ class Order(models.Model):
                 .order_by("expiry_date")  # FEFO
                 .first()
             )
-            amount = (Decimal(item.quantity) * Decimal(item.price)).quantize(Decimal("0.01"))
+            amount = (Decimal(item.quantity) * Decimal(item.bid_price)).quantize(Decimal("0.01"))
 
             SaleInvoiceItem.objects.create(
                 invoice=inv,
@@ -96,7 +96,7 @@ class Order(models.Model):
                 quantity=item.quantity,
                 bonus=0,
                 packing=0,
-                rate=item.price,
+                rate=item.bid_price,
                 discount1=0,
                 discount2=0,
                 amount=amount,        # kept for schema compatibility
