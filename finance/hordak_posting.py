@@ -176,6 +176,39 @@ def post_purchase(*, date, description, total, discount=Decimal("0"), tax=Decima
 
     return txn
 
+
+def reverse_txn_purchase(original_txn: Transaction, *, memo: str = "", posted_at=None) -> Transaction:
+    """
+    Reverse ANY purchase txn generically by flipping legs.
+    Works with djmoney Money objects (no Decimal conversion).
+    """
+    if posted_at is None:
+        posted_at = timezone.now()
+
+    if original_txn.description and "Reversal of" in original_txn.description:
+        raise ValueError("Refusing to reverse a transaction that appears to be a reversal already.")
+
+    desc = f"Reversal of {original_txn.description or original_txn.pk}"
+    if memo:
+        desc = f"{desc}. {memo}"
+
+    with hordak_tx(description=desc, posted_at=posted_at) as rev_txn:
+        # Iterate original legs and flip them
+        for leg in original_txn.legs.select_related("account").all():
+            # In Hordak, leg.debit and leg.credit are Money (or None)
+            money: Money | None = leg.debit or leg.credit
+            if money is None:
+                continue
+            # If you need to ensure same currency, you can assert here:
+            # assert money.currency == leg.account.currency.code
+
+            if leg.debit:  # original DR -> create CR
+                Leg.objects.create(transaction=rev_txn, account=leg.account, credit=money)
+            else:          # original CR -> create DR
+                Leg.objects.create(transaction=rev_txn, account=leg.account, debit=money)
+
+    return rev_txn
+
 @transaction.atomic
 def post_sale(*, date, description, subtotal, tax=Decimal("0"),
               customer_account, warehouse_sales_account=None,
@@ -316,3 +349,47 @@ def post_customer_refund(*, date, description, customer_account, amount, warehou
         Leg.objects.create(transaction=txn, account=ar,   debit=as_money(amount, ar))
         Leg.objects.create(transaction=txn, account=cash, credit=as_money(amount, cash))
         return txn
+    
+
+
+
+def post_sale_return_credit_note(*, date, description, base_amount, tax_amount,
+                                 customer_account, sales_return_account, output_tax_account=None):
+    """
+    DR Sales Returns (base)
+    DR Output Tax (contra) (tax_amount)  [optional]
+    CR Accounts Receivable (base + tax)
+    """
+    base = Decimal(base_amount)
+    tax  = Decimal(tax_amount or 0) 
+    total = base + (tax or 0)
+    with hordak_tx(description=description, posted_at=date or timezone.now()) as txn:
+        Leg.objects.create(transaction=txn, account=sales_return_account, debit=as_money(base, sales_return_account))
+        if tax and output_tax_account:
+            Leg.objects.create(transaction=txn, account=output_tax_account, debit=as_money(tax, output_tax_account))
+        Leg.objects.create(transaction=txn, account=customer_account, credit=as_money(total, customer_account))
+        return txn
+
+def post_sale_return_refund_cash(*, date, description, amount, customer_account, cash_bank_account):
+    """
+    DR A/R
+    CR Cash/Bank
+    """
+    with hordak_tx(description=description, posted_at=date or timezone.now()) as txn:
+        Leg.objects.create(transaction=txn, account=customer_account, debit=as_money(amount, customer_account))
+        Leg.objects.create(transaction=txn, account=cash_bank_account, credit=as_money(amount, cash_bank_account))
+        return txn
+
+def reverse_txn_generic(original_txn, memo=""):
+    desc = f"Reversal of {original_txn.description or original_txn.pk}"
+    if memo: desc += f". {memo}"
+    with hordak_tx(description=desc, posted_at=original_txn.posted_at or timezone.now()) as rv:
+        for leg in original_txn.legs.select_related("account"):
+            money = leg.debit or leg.credit
+            if money is None or money.amount == 0:
+                continue
+            if leg.debit:
+                Leg.objects.create(transaction=rv, account=leg.account, credit=money)
+            else:
+                Leg.objects.create(transaction=rv, account=leg.account, debit=money)
+        return rv

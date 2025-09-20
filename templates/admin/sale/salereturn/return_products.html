@@ -1,0 +1,74 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+{% load form_utils %}
+
+{% block title %}{% trans "Return Products" %} | {{ site_title|default:_('Django site admin') }}{% endblock %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+  <a href="{% url 'admin:index' %}">{% trans 'Home' %}</a>
+  &rsaquo; <a href="{% url 'admin:app_list' app_label=opts.app_label %}">{{ opts.app_config.verbose_name }}</a>
+  &rsaquo; <a href="{% url 'admin:sale_salereturn_changelist' %}">{{ opts.verbose_name_plural|capfirst }}</a>
+  &rsaquo; <a href="{% url 'admin:sale_salereturn_change' sr.pk %}">{{ sr.return_no }}</a>
+  &rsaquo; {% trans "Return Products" %}
+</div>
+{% endblock %}
+
+{% block content %}
+<h1 class="page-title">{% trans "Return Products" %}</h1>
+
+<div class="module aligned">
+  <h2>{{ sr.return_no }} — {{ sr.customer }} — {{ sr.warehouse }}</h2>
+  <p style="margin:6px 0 16px 0;">
+    <strong>{% trans "Date" %}:</strong> {{ sr.date }} &nbsp;|&nbsp;
+    <strong>{% trans "Total (planned)" %}:</strong> {{ sr.total_amount }} &nbsp;|&nbsp;
+    <strong>{% trans "Returned value (to date)" %}:</strong> {{ sr.returned_value }} &nbsp;|&nbsp;
+    <strong>{% trans "Refunded" %}:</strong> {{ sr.refunded_amount }} &nbsp;|&nbsp;
+    <strong>{% trans "Status" %}:</strong> {{ sr.get_status_display }}
+  </p>
+</div>
+
+<form method="post" novalidate>
+  {% csrf_token %}
+
+  <div class="module">
+    <table class="listing full-width" id="return-products-table">
+      <thead>
+        <tr>
+          <th>{% trans "Product" %}</th>
+          <th>{% trans "Batch" %}</th>
+          <th>{% trans "Expiry" %}</th>
+          <th class="center">{% trans "Planned Qty" %}</th>
+          <th class="center">{% trans "Returned so far" %}</th>
+          <th class="center">{% trans "Return now" %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for it in form.rows %}
+          <tr>
+            <td>{{ it.product }}</td>
+            <td>{{ it.batch_number|default:"—" }}</td>
+            <td>{{ it.expiry_date|date:"Y-m-d"|default:"—" }}</td>
+            <td class="center">{{ it.quantity }}</td>
+            <td class="center">{{ it.returned_qty }}</td>
+            <td class="center">
+                {% with pk_str=it.pk|stringformat:"s" %}
+                    {% with key="qty_"|add:pk_str %}
+                    {{ form|form_field:key }}
+                    {% endwith %}
+                {% endwith %}
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="6" class="center muted">{% trans "No items found on this sale return." %}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="submit-row">
+    <a class="button" href="{% url 'admin:sale_salereturn_change' sr.pk %}">{% trans "Back" %}</a>
+    <input type="submit" value="{% trans 'Stock In Selected Quantities' %}" class="default">
+  </div>
+</form>
+{% endblock %}

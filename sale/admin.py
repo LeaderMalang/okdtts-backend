@@ -24,6 +24,8 @@ from django.urls import path, reverse
 from django.db import transaction
 from decimal import Decimal
 from django.utils.dateformat import format as date_format
+from finance.hordak_posting import reverse_txn_generic,post_sale_return_refund_cash,post_sale_return_credit_note,_cash_or_bank
+from utils.stock import stock_in, stock_out,stock_return
 # --- Inlines ---
 
 #--- PDF generation ---
@@ -221,422 +223,238 @@ class SaleInvoiceAdmin(admin.ModelAdmin):
             "form": form,
         }
         return render(request, "admin/sale/saleinvoice/receive_payment.html", ctx)
-# ---------- Inline ----------
 class SaleReturnItemInline(admin.TabularInline):
     model = SaleReturnItem
     extra = 0
-    fields = ("product", "batch_number", "expiry_date", "quantity", "rate", "amount")
-    can_delete = True
+    fields = ("product", "batch_number", "expiry_date", "quantity", "rate", "amount", "returned_qty")
+    readonly_fields = ("returned_qty",)
 
-# ---------- Split form for refund/credit ----------
-class RefundCreditBreakdownForm(forms.Form):
-    refund_amount = forms.DecimalField(min_value=0, decimal_places=2, max_digits=12)
-    credit_amount = forms.DecimalField(min_value=0, decimal_places=2, max_digits=12)
-    note = forms.CharField(required=False, widget=forms.Textarea(attrs={"rows": 2}))
-
-    def __init__(self, *args, outstanding: Decimal, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.outstanding = Decimal(outstanding or 0)
-        self.fields["refund_amount"].widget.attrs.update({"step": "0.01"})
-        self.fields["credit_amount"].widget.attrs.update({"step": "0.01"})
-
-    def clean(self):
-        data = super().clean()
-        refund = Decimal(data.get("refund_amount") or 0)
-        credit = Decimal(data.get("credit_amount") or 0)
-        if (refund + credit) != self.outstanding:
-            # allow penny rounding differences if you like
-            raise forms.ValidationError("Refund + Credit must equal outstanding.")
-        return data
-
-# ---------- Admin actions (list view) ----------
-@admin.action(description="Confirm selected sale returns (book credit note)")
-def action_confirm(modeladmin, request, queryset):
-    qs = queryset.select_related("customer", "warehouse")
-    done, skipped = 0, 0
-    for sr in qs:
-        try:
-            if sr.status != "DRAFT":
-                skipped += 1
-                continue
-            with transaction.atomic():
-                sr.status = "CONFIRMED"
-                sr.save(update_fields=["status"])
-            done += 1
-        except Exception as e:
-            modeladmin.message_user(request, f"#{sr.pk} {sr.return_no}: {e}", level=messages.ERROR)
-    if done:
-        messages.success(request, f"Confirmed {done} sale return(s).")
-    if skipped:
-        messages.warning(request, f"Skipped {skipped} (not in DRAFT).")
-
-@admin.action(description="Mark returned (stock-in items)")
-def action_mark_returned(modeladmin, request, queryset):
-    qs = queryset.prefetch_related("items").select_related("warehouse")
-    done, skipped, errors = 0, 0, 0
-    for sr in qs:
-        try:
-            if sr.status != "CONFIRMED":
-                skipped += 1
-                continue
-            if not sr.items.exists():
-                errors += 1
-                modeladmin.message_user(request, f"#{sr.pk} {sr.return_no}: No items to stock-in.", level=messages.ERROR)
-                continue
-            with transaction.atomic():
-                sr.status = "RETURNED"
-                sr.save(update_fields=["status"])
-            done += 1
-        except Exception as e:
-            errors += 1
-            modeladmin.message_user(request, f"#{sr.pk} {sr.return_no}: {e}", level=messages.ERROR)
-    if done:
-        messages.success(request, f"Marked RETURNED {done} sale return(s).")
-    if skipped:
-        messages.warning(request, f"Skipped {skipped} (only CONFIRMED allowed).")
-
-@admin.action(description="Refund outstanding (cash/bank)")
-def action_refund_outstanding(modeladmin, request, queryset):
-    qs = queryset.select_related("customer", "warehouse")
-    done, skipped = 0, 0
-    for sr in qs:
-        try:
-            if sr.status not in {"CONFIRMED", "RETURNED"}:
-                skipped += 1
-                continue
-            total = Decimal(sr.total_amount or 0)
-            paid  = Decimal(sr.refunded_amount or 0)
-            if total - paid <= 0:
-                skipped += 1
-                continue
-            with transaction.atomic():
-                sr.status = "REFUNDED"
-                sr.save(update_fields=["status"])
-            done += 1
-        except Exception as e:
-            modeladmin.message_user(request, f"#{sr.pk} {sr.return_no}: {e}", level=messages.ERROR)
-    if done:
-        messages.success(request, f"Issued cash refund for {done} sale return(s).")
-    if skipped:
-        messages.warning(request, f"Skipped {skipped} (no outstanding or wrong status).")
-
-@admin.action(description="Mark credited (no cash, just A/R reduced)")
-def action_mark_credited(modeladmin, request, queryset):
-    qs = queryset.select_related("customer")
-    done, skipped = 0, 0
-    for sr in qs:
-        try:
-            if sr.status not in {"CONFIRMED", "RETURNED"}:
-                skipped += 1
-                continue
-            total = Decimal(sr.total_amount or 0)
-            paid  = Decimal(sr.refunded_amount or 0)
-            if paid >= total:
-                skipped += 1
-                continue
-            with transaction.atomic():
-                sr.status = "CREDITED"
-                sr.save(update_fields=["status"])
-            done += 1
-        except Exception as e:
-            modeladmin.message_user(request, f"#{sr.pk} {sr.return_no}: {e}", level=messages.ERROR)
-    if done:
-        messages.success(request, f"Marked CREDITED {done} sale return(s).")
-    if skipped:
-        messages.warning(request, f"Skipped {skipped} (wrong status or already settled).")
-
-@admin.action(description="Cancel (only DRAFT)")
-def action_cancel(modeladmin, request, queryset):
-    done, skipped = 0, 0
-    for sr in queryset:
-        if sr.status != "DRAFT":
-            skipped += 1
-            continue
-        with transaction.atomic():
-            sr.status = "CANCELLED"
-            sr.save(update_fields=["status"])
-        done += 1
-    if done:
-        messages.success(request, f"Cancelled {done} sale return(s).")
-    if skipped:
-        messages.warning(request, f"Skipped {skipped} (only DRAFT can be cancelled).")
-
-@admin.action(description="Settle with refund/credit (enter amounts)…")
-def action_settle_with_breakdown(modeladmin, request, queryset):
-    if queryset.count() != 1:
-        modeladmin.message_user(request, "Select exactly one sale return.", level=messages.ERROR)
-        return
-    sr = queryset.first()
-    if sr.status not in {"CONFIRMED", "RETURNED"}:
-        modeladmin.message_user(request, "Only CONFIRMED or RETURNED sale returns can be settled.", level=messages.ERROR)
-        return
-    url = reverse("admin:sales_salereturn_settle_breakdown") + f"?id={sr.pk}"
-    return HttpResponseRedirect(url)
-
-# ---------- Admin ----------
 @admin.register(SaleReturn)
 class SaleReturnAdmin(admin.ModelAdmin):
-    list_display = ("return_no", "date", "customer", "warehouse", "total_amount", "status", "payment_status", "refunded_amount")
-    list_filter  = ("status", "payment_status", "warehouse", "date")
-    search_fields = ("return_no", "customer__name")
-    autocomplete_fields = ("customer", "warehouse", "invoice")
+    list_display = ("return_no","date","customer","warehouse","total_amount","returned_value","refunded_amount","status")
+    autocomplete_fields = ("customer","warehouse","invoice")
     inlines = [SaleReturnItemInline]
 
-    actions = [
-        action_confirm,
-        action_mark_returned,
-        action_refund_outstanding,
-        action_mark_credited,
-        action_cancel,
-        action_settle_with_breakdown,
-    ]
-
     class Media:
-        # your JS from the previous step (Select2-safe binding)
-        js = ("admin/sale_return_autofill.js",)
+        js = ("admin/sale_return_autofill.js",)  # updated script below
 
-    # If you have a custom template with object buttons, add change_form_template and form buttons as needed
-
+    # ---- URLs for dedicated pages
     def get_urls(self):
         urls = super().get_urls()
         my = [
-            path("settle-breakdown/", self.admin_site.admin_view(self.settle_breakdown_view), name="sales_salereturn_settle_breakdown"),
-            # object-level POST endpoints
-            path("<int:object_id>/confirm/",  self.admin_site.admin_view(self.obj_confirm_view),  name="sales_salereturn_confirm"),
-            path("<int:object_id>/returned/", self.admin_site.admin_view(self.obj_mark_returned), name="sales_salereturn_returned"),
-            path("<int:object_id>/refund/",   self.admin_site.admin_view(self.obj_refund_outstanding), name="sales_salereturn_refund"),
-            path("<int:object_id>/credited/", self.admin_site.admin_view(self.obj_mark_credited), name="sales_salereturn_credited"),
-            path("<int:object_id>/cancel/",   self.admin_site.admin_view(self.obj_cancel), name="sales_salereturn_cancel"),
-            # invoice JSON for client-side auto-fill
-            path("invoice-data/<int:invoice_id>/", self.admin_site.admin_view(self.invoice_data_json), name="sales_salereturn_invoice_data"),
+            path("<int:pk>/return-products/", self.admin_site.admin_view(self.return_products_view), name="sale_salereturn_return_products"),
+            path("<int:pk>/return-payment/",  self.admin_site.admin_view(self.return_payment_view),  name="sale_salereturn_return_payment"),
+            path("<int:pk>/cancel/",          self.admin_site.admin_view(self.cancel_view),          name="sale_salereturn_cancel"),
+            path("invoice-data/<int:invoice_id>/", self.admin_site.admin_view(self.invoice_data_json), name="sale_salereturn_invoice_data"),
         ]
         return my + urls
 
-    # --- JSON for invoice selection (used by sale_return_autofill.js) ---
-    def invoice_data_json(self, request, invoice_id: int):
-        try:
-            inv = (
-                SaleInvoice.objects
-                .select_related("customer", "warehouse")
-                .prefetch_related("items__product", "items__batch")
-                .get(pk=invoice_id)
-            )
-        except SaleInvoice.DoesNotExist:
-            raise Http404
+    # ---- Page 1: Return products (stock-in exact batches)
+    class ReturnProductsForm(forms.Form):
+        """
+        Renders dynamic rows: one per SaleReturnItem with 'return now' quantity.
+        """
+        def __init__(self, *args, items_qs, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.rows = []
+            for it in items_qs:
+                field = forms.IntegerField(min_value=0, required=False, label=str(it.product))
+                self.fields[f"qty_{it.pk}"] = field
+                self.initial[f"qty_{it.pk}"] = 0
+                self.rows.append(it)
 
-        def norm_batch(b):
-            return (b or "").strip()
-
-        # Build key map from invoice items: (product_id, batch_number) -> info
-        by_key = {}
-        for it in inv.items.all():
-            batch_no = ""
-            if getattr(it, "batch_id", None) and getattr(it, "batch", None):
-                batch_no = norm_batch(getattr(it.batch, "batch_number", ""))
-                expiry = getattr(it.batch, "expiry_date", None)
-            else:
-                batch_no = norm_batch(getattr(it, "batch_number", ""))
-                expiry = getattr(it, "expiry_date", None)
-
-            by_key[(it.product_id, batch_no)] = {
-                "invoice_item_id": it.id,
-                "rate": Decimal(getattr(it, "rate", 0) or 0),
-                "ordered_plus_bonus": int((it.quantity or 0) + (getattr(it, "bonus", 0) or 0)),
-                "expiry": expiry,
-            }
-
-        # delivered qty fallback = ordered (until you add a real delivery table)
-        delivered_by_item = {v["invoice_item_id"]: v["ordered_plus_bonus"] for v in by_key.values()}
-
-        # Already returned (effective SRs)
-        COUNT_STATUSES = {"CONFIRMED", "RETURNED", "REFUNDED", "CREDITED"}
-        returned_by_key = dict(
-            SaleReturnItem.objects.filter(
-                return_invoice__invoice=inv,
-                return_invoice__status__in=COUNT_STATUSES
-            )
-            .values_list("product_id", "batch_number")
-            .annotate(total=Sum("quantity"))
-            .values_list("product_id", "batch_number", "total")
-        )
-        # The above returns a dict with tuple keys only in recent Django versions; if not, build loop-style.
-
-        items_payload = []
-        for (prod_id, batch_no), info in by_key.items():
-            inv_item_id = info["invoice_item_id"]
-            delivered   = int(delivered_by_item.get(inv_item_id, 0))
-            already     = int(returned_by_key.get((prod_id, batch_no), 0) or 0)
-            returnable  = max(delivered - already, 0)
-            if returnable <= 0:
-                continue
-            expiry = info["expiry"]
-            items_payload.append({
-                "invoice_item_id": inv_item_id,
-                "product_id": prod_id,
-                "product_label": str(getattr(SaleInvoiceItem.objects.get(pk=inv_item_id), "product")),
-                "batch_number": batch_no,
-                "expiry_date": expiry.isoformat() if expiry else "",
-                "rate": str(info["rate"]),
-                "max_return_qty": returnable,
-                "default_qty": returnable,
-            })
-
-        payload = {
-            "invoice": {
-                "id": inv.id,
-                "invoice_no": inv.invoice_no,
-                "date": date_format(inv.date, "Y-m-d"),
-            },
-            "customer": {"id": inv.customer_id, "text": str(inv.customer)},
-            "warehouse": {"id": inv.warehouse_id, "text": str(inv.warehouse)},
-            "items": items_payload,
-        }
-        return JsonResponse(payload)
-
-    # --- Settle popup (list view action) ---
-    def settle_breakdown_view(self, request):
-        sr_id = request.GET.get("id") or request.POST.get("id")
-        try:
-            sr = self.get_queryset(request).select_related("customer", "warehouse").get(pk=sr_id)
-        except Exception:
-            self.message_user(request, "Invalid selection.", level=messages.ERROR)
-            return redirect("admin:sale_salereturn_changelist")
-
-        if sr.status not in {"CONFIRMED", "RETURNED"}:
-            self.message_user(request, "Only CONFIRMED/RETURNED sale returns can be settled.", level=messages.ERROR)
-            return redirect("admin:sale_salereturn_changelist")
-
-        total = Decimal(sr.total_amount or 0)
-        already = Decimal(sr.refunded_amount or 0)
-        outstanding = (total - already)
-        if outstanding <= 0:
-            self.message_user(request, "Nothing outstanding to settle.", level=messages.WARNING)
-            return redirect("admin:sale_salereturn_changelist")
-
+    def return_products_view(self, request, pk):
+        sr = get_object_or_404(SaleReturn.objects.prefetch_related("items"), pk=pk)
         if request.method == "POST":
-            form = RefundCreditBreakdownForm(request.POST, outstanding=outstanding)
+            form = self.ReturnProductsForm(request.POST, items_qs=sr.items.all())
             if form.is_valid():
-                refund = form.cleaned_data["refund_amount"]
-                credit = form.cleaned_data["credit_amount"]
-                note = form.cleaned_data.get("note", "")
                 try:
                     with transaction.atomic():
-                        if refund > 0:
-                            sr.post_cash_refund_amount(refund, note=note)
-                        if credit > 0:
-                            sr.status = "CREDITED"
-                            sr.refunded_amount = sr._base_total()
+                        for it in sr.items.select_for_update():
+                            qty = int(form.cleaned_data.get(f"qty_{it.pk}") or 0)
+                            if qty <= 0:
+                                continue
+                            # stock-in to EXACT BATCH that customer returned
+                            stock_return(
+                                product=it.product,
+                                quantity=qty,
+                                batch_number=(it.batch_number or ""),
+                                
+                                reason=f"Sale Return {sr.return_no}",
+                            )
+                            it.returned_qty = (it.returned_qty or 0) + qty
+                            it.save(update_fields=["returned_qty"])
+                        # refresh parent returned value
+                        sr.recompute_returned_value()
+                        if sr.returned_value > 0 and sr.status == "DRAFT":
+                            sr.status = "PRODUCTS_RETURNED"
+                            sr.save(update_fields=["status"])
+                    self.message_user(request, "Products returned and stocked in.", level=messages.SUCCESS)
+                except Exception as e:
+                    self.message_user(request, f"Error: {e}", level=messages.ERROR)
+                return redirect(reverse("admin:sale_salereturn_change", args=[sr.pk]))
+        else:
+            form = self.ReturnProductsForm(items_qs=sr.items.all())
+        return render(request, "admin/sale/salereturn/return_products.html", {"sr": sr, "form": form,"opts": self.model._meta,})
+
+    # ---- Page 2: Return payment (credit note + optional cash refund)
+    class ReturnPaymentForm(forms.Form):
+        REFUND_CHOICES = (("credit", "Credit to A/R"), ("cash", "Cash refund"))
+        settlement = forms.ChoiceField(choices=REFUND_CHOICES)
+        refund_amount = forms.DecimalField(min_value=0, decimal_places=2, max_digits=12, required=False)
+
+        def __init__(self, *args, returned_value: Decimal, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.returned_value = Decimal(returned_value or 0)
+            self.fields["refund_amount"].widget.attrs.update({"step": "0.01"})
+
+        def clean(self):
+            data = super().clean()
+            returned_value = self.returned_value
+            settlement = data.get("settlement")
+            refund = Decimal(data.get("refund_amount") or 0)
+            if settlement == "cash" and (refund <= 0 or refund > returned_value):
+                raise forms.ValidationError("Refund must be > 0 and ≤ returned value.")
+            return data
+
+    def return_payment_view(self, request, pk):
+        sr = get_object_or_404(SaleReturn.objects.select_related("customer","warehouse"), pk=pk)
+        sr.recompute_returned_value()
+        total_returned = Decimal(sr.returned_value or 0)
+        already_refund = Decimal(sr.refunded_amount or 0)
+        outstanding = (total_returned - already_refund).quantize(Decimal("0.01"))
+        if sr.returned_value <= 0:
+            self.message_user(request, "Nothing returned yet. Return products first.", level=messages.WARNING)
+            return redirect(reverse("admin:sale_salereturn_change", args=[sr.pk]))
+
+        if request.method == "POST":
+            form = self.ReturnPaymentForm(request.POST, returned_value=sr.returned_value)
+            if form.is_valid():
+                settlement = form.cleaned_data["settlement"]
+                refund     = Decimal(form.cleaned_data.get("refund_amount") or 0)
+
+                try:
+                    with transaction.atomic():
+                        # 1) Credit note for full returned_value (base + tax split if you use tax)
+                        cust = sr.customer.chart_of_account
+                        sales_ret = getattr(sr.warehouse, "default_sales_return_account", None) or sr.warehouse.default_sales_account
+                        tax_acct  = getattr(sr.warehouse, "default_output_tax_account", None)  # optional
+
+                        cn = post_sale_return_credit_note(
+                            date=sr.date,
+                            description=f"Sale Return Credit Note {sr.return_no}",
+                            base_amount=sr.returned_value,
+                            tax_amount=Decimal(sr.tax or 0),
+                            customer_account=cust,
+                            sales_return_account=sales_ret,
+                            output_tax_account=tax_acct,
+                        )
+                        sr.credit_note_txn = cn
+
+                        # 2) Settlement flavor
+                        if settlement == "cash" and refund > 0:
+                            cash = _cash_or_bank(sr.warehouse)
+                            rt = post_sale_return_refund_cash(
+                                date=sr.date,
+                                description=f"Sale Return Cash Refund {sr.return_no}",
+                                amount=refund,
+                                customer_account=cust,
+                                cash_bank_account=cash,
+                            )
+                            sr.refund_txn = rt
+                            sr.refunded_amount = (sr.refunded_amount or 0) + refund
+                            sr.status = "REFUNDED" if sr.refunded_amount >= sr.returned_value else "PRODUCTS_RETURNED"
                         else:
-                            sr.status = "REFUNDED"
-                        sr._sync_payment_status()
-                        sr.save(update_fields=["status", "payment_status", "refunded_amount", "refund_txn_id"])
-                except Exception as exc:
-                    self.message_user(request, f"Error: {exc}", level=messages.ERROR)
-                    return redirect("admin:sale_salereturn_changelist")
+                            # purely credit to A/R
+                            sr.status = "CREDITED"
 
-                self.message_user(request, _(f"Settled {sr.return_no}: refund {refund}, credit {credit}."), level=messages.SUCCESS)
-                return redirect("admin:sale_salereturn_changelist")
+                        sr.save(update_fields=["credit_note_txn","refund_txn","refunded_amount","status"])
+                    self.message_user(request, "Payment/credit processed.", level=messages.SUCCESS)
+                except Exception as e:
+                    self.message_user(request, f"Error: {e}", level=messages.ERROR)
+
+                return redirect(reverse("admin:sale_salereturn_change", args=[sr.pk]))
         else:
-            half = (outstanding / Decimal("2")).quantize(Decimal("0.01"))
-            form = RefundCreditBreakdownForm(outstanding=outstanding, initial={"refund_amount": half, "credit_amount": outstanding - half})
+            form = self.ReturnPaymentForm(returned_value=sr.returned_value)
+            
+        return render(request, "admin/sale/salereturn/return_payment.html", {"sr": sr, "total_returned": total_returned,
+        "already_refund": already_refund,"outstanding": outstanding, "form": form,"opts": self.model._meta,})
 
-        ctx = {
-            **self.admin_site.each_context(request),
-            "title": _("Settle Sale Return – Enter Refund/Credit"),
-            "opts": self.model._meta,
-            "sr": sr,
-            "sr_id": sr.pk,
-            "total": total,
-            "already": already,
-            "outstanding": outstanding,
-            "form": form,
-        }
-        return render(request, "admin/sale/salereturn/settle_breakdown.html", ctx)
-
-    # --- Object-level endpoints for buttons on the change form (optional) ---
-    def obj_confirm_view(self, request, object_id):
+    # ---- Cancel: reverse accounting + reverse stock-in
+    def cancel_view(self, request, pk):
+        sr = get_object_or_404(SaleReturn.objects.prefetch_related("items"), pk=pk)
         if request.method != "POST":
-            return HttpResponseNotAllowed(["POST"])
-        sr = get_object_or_404(SaleReturn, pk=object_id)
-        if sr.status != "DRAFT":
-            self.message_user(request, "Only DRAFT can be confirmed.", level=messages.ERROR)
-        else:
+            return redirect(reverse("admin:sale_salereturn_change", args=[sr.pk]))
+
+        try:
             with transaction.atomic():
-                sr.status = "CONFIRMED"
-                sr.save(update_fields=["status"])
-            self.message_user(request, "Confirmed.", level=messages.SUCCESS)
-        return redirect(reverse("admin:sale_salereturn_change", args=[sr.pk]))
+                # reverse stock-in (only returned_qty)
+                for it in sr.items.select_for_update():
+                    q = int(it.returned_qty or 0)
+                    if q > 0:
+                        stock_out(
+                            product=it.product,
+                            quantity=q,
+                            warehouse=sr.warehouse,
+                            batch_number=(it.batch_number or ""),
+                            reason=f"Reverse SR {sr.return_no}",
+                        )
+                        it.returned_qty = 0
+                        it.save(update_fields=["returned_qty"])
 
-    def obj_mark_returned(self, request, object_id):
-        if request.method != "POST":
-            return HttpResponseNotAllowed(["POST"])
-        sr = get_object_or_404(SaleReturn, pk=object_id)
-        if sr.status != "CONFIRMED":
-            self.message_user(request, "Only CONFIRMED can be marked RETURNED.", level=messages.ERROR)
-        elif not sr.items.exists():
-            self.message_user(request, "No items to stock-in.", level=messages.ERROR)
-        else:
-            with transaction.atomic():
-                sr.status = "RETURNED"
-                sr.save(update_fields=["status"])
-            self.message_user(request, "Marked RETURNED.", level=messages.SUCCESS)
-        return redirect(reverse("admin:sale_salereturn_change", args=[sr.pk]))
+                # reverse accounting
+                if sr.refund_txn_id:
+                    reverse_txn_generic(sr.refund_txn, memo=f"Cancel SR {sr.return_no} – refund")
+                    sr.refund_txn = None
+                if sr.credit_note_txn_id:
+                    reverse_txn_generic(sr.credit_note_txn, memo=f"Cancel SR {sr.return_no} – credit note")
+                    sr.credit_note_txn = None
 
-    def obj_refund_outstanding(self, request, object_id):
-        if request.method != "POST":
-            return HttpResponseNotAllowed(["POST"])
-        sr = get_object_or_404(SaleReturn, pk=object_id)
-        if sr.status not in {"CONFIRMED", "RETURNED"}:
-            self.message_user(request, "Only CONFIRMED/RETURNED can be refunded.", level=messages.ERROR)
-        else:
-            total = Decimal(sr.total_amount or 0)
-            paid  = Decimal(sr.refunded_amount or 0)
-            if total - paid <= 0:
-                self.message_user(request, "Nothing outstanding to refund.", level=messages.WARNING)
-            else:
-                with transaction.atomic():
-                    sr.status = "REFUNDED"
-                    sr.save(update_fields=["status"])
-                self.message_user(request, "Refunded outstanding.", level=messages.SUCCESS)
-        return redirect(reverse("admin:sale_salereturn_change", args=[sr.pk]))
-
-    def obj_mark_credited(self, request, object_id):
-        if request.method != "POST":
-            return HttpResponseNotAllowed(["POST"])
-        sr = get_object_or_404(SaleReturn, pk=object_id)
-        if sr.status not in {"CONFIRMED", "RETURNED"}:
-            self.message_user(request, "Only CONFIRMED/RETURNED can be credited.", level=messages.ERROR)
-        else:
-            total = Decimal(sr.total_amount or 0)
-            already = Decimal(sr.refunded_amount or 0)
-            if already >= total:
-                self.message_user(request, "Already fully settled.", level=messages.WARNING)
-            else:
-                with transaction.atomic():
-                    sr.status = "CREDITED"
-                    sr.save(update_fields=["status"])
-                self.message_user(request, "Marked CREDITED.", level=messages.SUCCESS)
-        return redirect(reverse("admin:sale_salereturn_change", args=[sr.pk]))
-
-    def obj_cancel(self, request, object_id):
-        if request.method != "POST":
-            return HttpResponseNotAllowed(["POST"])
-        sr = get_object_or_404(SaleReturn, pk=object_id)
-        if sr.status != "DRAFT":
-            self.message_user(request, "Only DRAFT can be cancelled.", level=messages.ERROR)
-        else:
-            with transaction.atomic():
+                sr.refunded_amount = Decimal("0.00")
+                sr.returned_value  = Decimal("0.00")
                 sr.status = "CANCELLED"
-                sr.save(update_fields=["status"])
-            self.message_user(request, "Cancelled.", level=messages.SUCCESS)
+                sr.save(update_fields=["status","refunded_amount","returned_value","credit_note_txn","refund_txn"])
+            self.message_user(request, "Sale Return cancelled and reversed.", level=messages.SUCCESS)
+        except Exception as e:
+            self.message_user(request, f"Cancel failed: {e}", level=messages.ERROR)
+
         return redirect(reverse("admin:sale_salereturn_change", args=[sr.pk]))
 
-    # Optional: when saving from the add/change form, recompute once after inlines
-    def save_related(self, request, form, formsets, change):
-        super().save_related(request, form, formsets, change)
-        obj: SaleReturn = form.instance
-        obj._recompute_totals_from_items()
-        obj.save(update_fields=["total_amount"])
+    # ---------- JSON used by the JS autofill ----------
+   
+
+    def invoice_data_json(self, request, invoice_id: int):
+        from sale.models import SaleInvoice
+        try:
+            inv = (SaleInvoice.objects
+                   .select_related("customer","warehouse")
+                   .prefetch_related("items__product","items__batch")
+                   .get(pk=invoice_id))
+        except Exception:
+            raise Http404
+
+        def norm(b): return (b or "").strip()
+
+        payload_items = []
+        for it in inv.items.all():
+            batch_no = norm(getattr(it.batch, "batch_number", "") if getattr(it, "batch_id", None) else getattr(it, "batch_number", ""))
+            expiry   = getattr(it.batch, "expiry_date", None) if getattr(it, "batch_id", None) else getattr(it, "expiry_date", None)
+            qty      = int((it.quantity or 0) + (getattr(it, "bonus", 0) or 0))
+            rate     = Decimal(getattr(it, "rate", 0) or 0)
+            payload_items.append({
+                "product_id": it.product_id,
+                "product_label": str(it.product),
+                "batch_number": batch_no,
+                "expiry_date": expiry.isoformat() if expiry else "",
+                "default_qty": qty,
+                "rate": str(rate),
+            })
+
+        return JsonResponse({
+            "customer":  {"id": inv.customer_id,  "text": str(inv.customer)},
+            "warehouse": {"id": inv.warehouse_id, "text": str(inv.warehouse)},
+            "items": payload_items,
+        })
 
 
 

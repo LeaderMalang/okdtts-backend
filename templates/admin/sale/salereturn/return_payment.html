@@ -1,0 +1,78 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Return Payment" %} | {{ site_title|default:_('Django site admin') }}{% endblock %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+  <a href="{% url 'admin:index' %}">{% trans 'Home' %}</a>
+  {% if opts and opts.app_label %}
+    &rsaquo; <a href="{% url 'admin:app_list' app_label=opts.app_label %}">
+      {{ opts.app_config.verbose_name|default:opts.app_label }}
+    </a>
+  {% endif %}
+  &rsaquo; <a href="{% url 'admin:sale_salereturn_changelist' %}">{% trans "Sale returns" %}</a>
+  {% if sr %}
+    &rsaquo; <a href="{% url 'admin:sale_salereturn_change' sr.pk %}">{{ sr.return_no }}</a>
+  {% endif %}
+  &rsaquo; {% trans "Return Payment" %}
+</div>
+{% endblock %}
+
+{% block content %}
+<h1 class="page-title">{% trans "Return Payment / Credit" %}</h1>
+
+<div class="module aligned">
+  <h2>{{ sr.return_no }} — {{ sr.customer }} — {{ sr.warehouse }}</h2>
+  <p style="margin:6px 0 16px 0;">
+    <strong>{% trans "Date" %}:</strong> {{ sr.date }} &nbsp;|&nbsp;
+    <strong>{% trans "Returned value" %}:</strong> {{ total_returned }} &nbsp;|&nbsp;
+    <strong>{% trans "Already refunded" %}:</strong> {{ already_refund }} &nbsp;|&nbsp;
+    <strong>{% trans "Outstanding" %}:</strong> {{ outstanding }}
+  </p>
+</div>
+
+<form method="post" novalidate id="sr-return-payment-form">
+  {% csrf_token %}
+  <div class="module">
+    <fieldset class="module aligned">
+      <div class="form-row">
+        <label for="{{ form.settlement.id_for_label }}"><strong>{% trans "Settlement" %}</strong></label>
+        {{ form.settlement }}
+      </div>
+      <div class="form-row" id="refund-amount-row">
+        <label for="{{ form.refund_amount.id_for_label }}"><strong>{% trans "Refund Amount" %}</strong></label>
+        {{ form.refund_amount }}
+        <p class="help">{% blocktrans %}Enter cash refund amount (≤ outstanding {{ outstanding }}). Leave 0 for pure credit.{% endblocktrans %}</p>
+      </div>
+    </fieldset>
+  </div>
+
+  <div class="submit-row">
+    <a class="button" href="{% url 'admin:sale_salereturn_change' sr.pk %}">{% trans "Back" %}</a>
+    <input type="submit" value="{% trans 'Post Credit / Refund' %}" class="default">
+  </div>
+</form>
+
+<script>
+(function(){
+  const settlement = document.getElementById("{{ form.settlement.auto_id }}");
+  const refundRow  = document.getElementById("refund-amount-row");
+  const refund     = document.getElementById("{{ form.refund_amount.auto_id }}");
+
+  function toggleRefund(){
+    if (!settlement) return;
+    const cash = settlement.value === "cash";
+    refundRow.style.display = cash ? "block" : "none";
+    if (refund) {
+      refund.readOnly = !cash;
+      if (!cash) refund.value = "0.00";
+    }
+  }
+  if (settlement) {
+    settlement.addEventListener("change", toggleRefund);
+    toggleRefund();
+  }
+})();
+</script>
+{% endblock %}

@@ -19,10 +19,8 @@ class SaleInvoiceItemSerializer(serializers.ModelSerializer):
             "batch",
             "quantity",
             "bonus",
-            "packing",
             "rate",
             "discount1",
-            "discount2",
             "amount",
             "bid_amount",
         ]

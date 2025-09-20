@@ -2,7 +2,7 @@ from django.db import models
 from inventory.models import Product, Party
 from setting.models import Warehouse
 from voucher.models import Voucher, ChartOfAccount, VoucherType
-from utils.stock import stock_in, stock_return, stock_out
+from utils.stock import stock_in, stock_return, stock_out,stock_out_exact_batch
 from utils.voucher import create_voucher_for_transaction
 from finance.models import PaymentTerm, PaymentSchedule
 from datetime import timedelta
@@ -10,7 +10,7 @@ from setting.constants import TAX_RECEIVABLE_ACCOUNT_CODE
 from decimal import Decimal
 from django.db import transaction
 # from utils.voucher import post_composite_purchase_voucher,post_composite_purchase_return_voucher
-from finance.hordak_posting import post_purchase,post_purchase_return,post_supplier_payment_reverse
+from finance.hordak_posting import post_purchase,post_purchase_return,post_supplier_payment_reverse,reverse_txn_purchase
 from hordak.models import Transaction 
 from django.core.exceptions import ValidationError
 from finance.hordak_posting import post_supplier_payment
@@ -99,11 +99,10 @@ class GoodsReceipt(models.Model):
 
         # 1) Reverse stock moves: stock_out the exact quantities that were stocked_in by this GRN
         for it in self.items.select_related("invoice_item__product"):
-            stock_out(
+            stock_out_exact_batch(
                 product=it.invoice_item.product,
                 quantity=it.quantity,
-                batch_number=it.batch_number or it.invoice_item.batch_number,
-                expiry_date=it.expiry_date or it.invoice_item.expiry_date,
+                batch_number= it.invoice_item.batch_number,
                 reason=f"GRN {self.grn_no} reversed: {reason}",
                 warehouse=self.warehouse,
             )
@@ -206,24 +205,6 @@ class PurchaseInvoice(models.Model):
         self._recalc_payment_status()
         self.save(update_fields=["invoice_no", "grand_total", "status", "payment_status", "hordak_txn"])
 
-    # @transaction.atomic
-    # def receive(self):
-    #     # Physical goods in (do it once)
-    #     if self.status != "CONFIRMED":
-    #         raise ValueError("Receive allowed only after CONFIRMED")
-    #     for line in self.items.all():
-    #         stock_in(
-    #             product=line.product,
-    #             quantity=line.quantity,
-    #             batch_number=line.batch_number,
-    #             expiry_date=line.expiry_date,
-    #             purchase_price=line.purchase_price,
-    #             sale_price=line.sale_price,
-    #             reason=f"Purchase {self.invoice_no}",
-    #             warehouse=self.warehouse,
-    #         )
-    #     self.status = "RECEIVED"
-    #     self.save(update_fields=["status"])
 
     def _recalc_payment_status(self):
         if (Decimal(self.paid_amount or 0) ) >= Decimal(self.grand_total or 0):
@@ -391,9 +372,9 @@ class PurchaseInvoice(models.Model):
             self.credited_amount = Decimal("0.00")
 
         # 3) Reverse original purchase accounting
-        # if self.hordak_txn_id:
-        #     reverse_txn(self.hordak_txn, memo=f"Cancel PI {self.invoice_no}")
-        #     self.hordak_txn = None
+        if self.hordak_txn_id:
+            reverse_txn_purchase(self.hordak_txn, memo=f"Cancel PI {self.invoice_no}")
+            self.hordak_txn = None
 
         # 4) Statuses
         self.status = "CANCELLED"
@@ -521,11 +502,14 @@ class PurchaseReturn(models.Model):
         if not lines:
             raise ValidationError("No return items to stock-out.")
         for line in lines:
-            stock_out(
-                product=line.product,
-                quantity=line.quantity,
-                reason=f"Purchase Return {self.return_no}",
-            )
+            stock_out_exact_batch(
+            product=line.product,
+            quantity=line.quantity,
+            warehouse=self.warehouse,
+            batch_number=line.batch_number,              # <— exact batch
+            reason=f"Purchase Return {self.return_no}",
+        )
+           
 
     # ------- postings using your helper -------
     @transaction.atomic
@@ -561,7 +545,7 @@ class PurchaseReturn(models.Model):
             self.confirm_txn_id = txn
         # inside PurchaseReturn.post_confirm_entry (after posting the journal):
         try:
-            from purchase.models import PurchaseInvoice  # adjust if needed
+            
             if self.invoice_id:
                 apply_amount = min(Decimal(self._base_total()), Decimal(self.invoice.outstanding))
                 if apply_amount > 0 and hasattr(self.invoice, "apply_credit"):

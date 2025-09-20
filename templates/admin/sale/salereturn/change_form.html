@@ -5,25 +5,18 @@
   {{ block.super }}
   {% if original and original.pk %}
     <li>
-      <form action="{% url 'admin:sales_salereturn_confirm' original.pk %}" method="post" style="display:inline">{% csrf_token %}
-        <button class="button" type="submit">{% trans "Confirm" %}</button>
-      </form>
+      
+      <a href="{% url 'admin:sale_salereturn_return_products' original.pk %}" class="button" >{% trans "Return Products" %}</a>
     </li>
     <li>
-      <form action="{% url 'admin:sales_salereturn_returned' original.pk %}" method="post" style="display:inline">{% csrf_token %}
-        <button class="button" type="submit">{% trans "Mark Returned (Stock In)" %}</button>
-      </form>
+     
+      <a href="{% url 'admin:sale_salereturn_return_payment'  original.pk %}" class="button" >{% trans "Return Payment" %}</a>
     </li>
     <li>
-      <form action="{% url 'admin:sales_salereturn_refund' original.pk %}" method="post" style="display:inline">{% csrf_token %}
-        <button class="button" type="submit">{% trans "Refund Outstanding (Cash)" %}</button>
-      </form>
+      
+      <a style="color:red" href="{% url 'admin:sale_salereturn_cancel'          original.pk %}" class="button" >{% trans "Return Payment" %}</a>
     </li>
-    <li>
-      <form action="{% url 'admin:sales_salereturn_credited' original.pk %}" method="post" style="display:inline">{% csrf_token %}
-        <button class="button" type="submit">{% trans "Mark Credited" %}</button>
-      </form>
-    </li>
+    
 
   {% endif %}
 {% endblock %}
