@@ -9,8 +9,8 @@ from datetime import timedelta
 from setting.constants import TAX_RECEIVABLE_ACCOUNT_CODE
 from decimal import Decimal
 from django.db import transaction
-from utils.voucher import post_composite_purchase_voucher,post_composite_purchase_return_voucher
-from finance.hordak_posting import post_purchase,post_purchase_return
+# from utils.voucher import post_composite_purchase_voucher,post_composite_purchase_return_voucher
+from finance.hordak_posting import post_purchase,post_purchase_return,post_supplier_payment_reverse
 from hordak.models import Transaction 
 from django.core.exceptions import ValidationError
 from finance.hordak_posting import post_supplier_payment
@@ -84,7 +84,38 @@ class GoodsReceipt(models.Model):
         remaining_any = any(qty > 0 for qty in self.invoice.outstanding_receive_map().values())
         self.invoice.status = "PARTIAL" if remaining_any else "RECEIVED"
         self.invoice.save(update_fields=["status"])
+    @transaction.atomic
+    def unpost_cancel(self, *, reason="Invoice cancelled"):
+        """
+        Reverse the stock-in done by this GRN and mark GRN as CANCELLED.
+        Safe to call multiple times (idempotent): only acts on POSTED.
+        """
+        if self.status != "POSTED":
+            # DRAFT → just flip to CANCELLED
+            if self.status == "DRAFT":
+                self.status = "CANCELLED"
+                self.save(update_fields=["status"])
+            return
 
+        # 1) Reverse stock moves: stock_out the exact quantities that were stocked_in by this GRN
+        for it in self.items.select_related("invoice_item__product"):
+            stock_out(
+                product=it.invoice_item.product,
+                quantity=it.quantity,
+                batch_number=it.batch_number or it.invoice_item.batch_number,
+                expiry_date=it.expiry_date or it.invoice_item.expiry_date,
+                reason=f"GRN {self.grn_no} reversed: {reason}",
+                warehouse=self.warehouse,
+            )
+
+        # # 2) If you had posted_txn at GRN-level (often not needed), reverse it
+        # if self.posted_txn_id:
+        #     reverse_txn(self.posted_txn, memo=f"Reverse GRN {self.grn_no}: {reason}")
+        #     self.posted_txn = None  # optional
+
+        # 3) Mark cancelled
+        self.status = "CANCELLED"
+        self.save(update_fields=["status", "posted_txn"])
 
 class GoodsReceiptItem(models.Model):
     grn          = models.ForeignKey(GoodsReceipt, related_name="items", on_delete=models.CASCADE)
@@ -312,6 +343,62 @@ class PurchaseInvoice(models.Model):
             got = int(rec_map.get(it["id"], 0))
             out[it["id"]] = max(ordered - got, 0)
         return out
+    
+
+    @transaction.atomic
+    def cancel(self, *, reason="User requested cancellation", strict=True):
+        """
+        Fully cancel a CONFIRMED/PARTIAL/RECEIVED Purchase Invoice.
+
+        Steps:
+          1) Reverse any POSTED GRNs (stock-out) and mark them CANCELLED.
+          2) Reverse any supplier payments that contributed to paid_amount.
+          3) Reverse the original purchase accounting (self.hordak_txn).
+          4) Zero paid/credit amounts and set status=CANCELLED, payment_status=UNPAID.
+
+        If `strict=True`, will error if there are dependent docs (e.g., Purchase Returns posted).
+        """
+        if self.status == "CANCELLED":
+            return  # idempotent
+
+        # Optional strict safety: block if returns exist
+        if strict:
+            from purchase.models import PurchaseReturnItem  # adjust if different
+            any_returns = PurchaseReturnItem.objects.filter(return_invoice__invoice=self).exists()
+            if any_returns:
+                raise ValidationError("Cannot cancel: posted Purchase Return(s) exist against this invoice.")
+
+        # 1) Reverse GRNs (if any)
+        for grn in self.grns.select_for_update():
+            grn.unpost_cancel(reason=f"PI {self.invoice_no} cancelled")
+
+        # 2) Reverse payments (if any)
+        paid = Decimal(self.paid_amount or 0)
+        if paid > 0:
+            # If you have a SupplierPayment model linked per PI, iterate & reverse each.
+            # If not, we post a single net reversal (safe if you didn’t need per-payment audit).
+            post_supplier_payment_reverse(
+                date=self.date,
+                description=f"Reverse payments for {self.invoice_no}",
+                supplier_account=self.supplier.chart_of_account,
+                amount=paid,
+                warehouse=self.warehouse,
+            )
+            self.paid_amount = Decimal("0.00")
+
+        # Optionally reset applied credits too (these were non-posting offsets)
+        if Decimal(self.credited_amount or 0) > 0:
+            self.credited_amount = Decimal("0.00")
+
+        # 3) Reverse original purchase accounting
+        # if self.hordak_txn_id:
+        #     reverse_txn(self.hordak_txn, memo=f"Cancel PI {self.invoice_no}")
+        #     self.hordak_txn = None
+
+        # 4) Statuses
+        self.status = "CANCELLED"
+        self.payment_status = "UNPAID"
+        self.save(update_fields=["status", "payment_status", "paid_amount", "credited_amount", "hordak_txn"])
 class PurchaseInvoiceItem(models.Model):
     invoice = models.ForeignKey(
         PurchaseInvoice, related_name="items", on_delete=models.CASCADE

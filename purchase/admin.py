@@ -101,6 +101,24 @@ def action_settle_with_breakdown(modeladmin, request, queryset):
         return
     url = reverse("admin:purchase_purchaseinvoice_settle_breakdown") + f"?id={inv.pk}"
     return HttpResponseRedirect(url)
+
+
+
+@admin.action(description="Cancel selected Purchase Invoices (reverse GRN, payments, and accounting)")
+def cancel_purchase_invoices(modeladmin, request, queryset):
+    success, failed = 0, 0
+    for pi in queryset.select_for_update():
+        try:
+            with transaction.atomic():
+                pi.cancel(reason=f"Cancelled by {request.user}")
+                success += 1
+        except Exception as e:
+            failed += 1
+            messages.error(request, f"{pi.invoice_no or pi.pk}: {e}")
+    if success:
+        messages.success(request, f"Cancelled {success} invoice(s).")
+    if failed:
+        messages.warning(request, f"Failed to cancel {failed} invoice(s).")
 @admin.register(PurchaseInvoice)
 class PurchaseInvoiceAdmin(admin.ModelAdmin):
     list_display = ("invoice_no", "supplier", "date", "status", "payment_status", "grand_total", "paid_amount")
@@ -108,7 +126,7 @@ class PurchaseInvoiceAdmin(admin.ModelAdmin):
     search_fields = ("invoice_no", "company_invoice_number", "supplier__name")
     autocomplete_fields = ("supplier", "warehouse")
     inlines = [PurchaseInvoiceItemInline]
-    actions = ["action_confirm", "action_receive", "action_mark_paid","print_invoice_pdf",action_settle_with_breakdown]
+    actions = ["action_confirm", "action_receive", "action_mark_paid","print_invoice_pdf",action_settle_with_breakdown,cancel_purchase_invoices]
 
     @admin.action(description="Confirm selected invoices")
     def action_confirm(self, request, queryset):
@@ -171,8 +189,29 @@ class PurchaseInvoiceAdmin(admin.ModelAdmin):
                 self.admin_site.admin_view(self.receive_partial_view),
                 name="purchase_purchaseinvoice_receive_partial",
             ),
+            path(
+                "<int:object_id>/cancel-purchase/",
+                self.admin_site.admin_view(self.cancel_purchase_invoices),
+                name="purchase_purchaseinvoice_cancel",
+            ),
        ]
         return my_urls + urls
+    def cancel_purchase_invoices(self, request, object_id):
+        inv = get_object_or_404(
+            self.get_queryset(request).select_related("supplier","warehouse"),
+            pk=object_id
+        )
+        try:
+            with transaction.atomic():
+                inv.cancel(reason=f"Cancelled by {request.user}")
+              
+        except Exception as e:
+         
+            # messages.error(request, f"{inv.invoice_no or inv.pk}: {e}")
+            self.message_user(request, f"{inv.invoice_no or inv.pk}: {e}", level=messages.ERROR)
+            return redirect(reverse("admin:purchase_purchaseinvoice_change", args=[inv.pk]))
+        self.message_user(request, f"Purchase Invoice {inv.invoice_no} had been cancelled", level=messages.SUCCESS)
+        return redirect(reverse("admin:purchase_purchaseinvoice_change", args=[inv.pk]))
     def receive_partial_view(self, request, object_id):
         inv = get_object_or_404(
             self.get_queryset(request).select_related("supplier","warehouse"),

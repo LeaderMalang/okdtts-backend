@@ -25,5 +25,10 @@
         Settle (Payment/Credit)…
       </a>
     </li>
+    <li>
+      <a class="button" style="color:red" href="{% url 'admin:purchase_purchaseinvoice_cancel' original.pk %}">
+        Cancel
+      </a>
+    </li>
   {% endif %}
 {% endblock %}

@@ -285,6 +285,19 @@ def post_supplier_payment(*, date, description, supplier_account, amount, wareho
         return txn
 
 
+@transaction.atomic
+def post_supplier_payment_reverse(*, date, description, supplier_account, amount, warehouse):
+    """Cash paid without invoice (legacy A/P)."""
+    amount   = Decimal(amount)
+    cash     = _cash_or_bank(warehouse)
+    ap       = _acct(supplier_account)
+    # txn = Transaction.objects.create(date=date, description=description)
+    with hordak_tx(description, posted_at=timezone.now()) as txn:
+        Leg.objects.create(transaction=txn, account=ap,   credit=as_money(amount,ap))
+        Leg.objects.create(transaction=txn, account=cash, debit=as_money(amount,cash))
+        return txn
+
+
 
 
 @transaction.atomic
