@@ -3,11 +3,14 @@ from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from user.models import CustomUser
 from decimal import Decimal
-from utils.voucher import create_voucher_for_transaction
-from voucher.models import VoucherType
+from datetime import date as date_cls
+from django.db import models, transaction
+from django.utils import timezone
+from django.core.exceptions import ValidationError
+from hordak.models import Transaction, Account
 from setting.models import Company
 from hordak.models import Account
-
+from finance.hordak_posting import post_payroll_confirm_txn,post_payroll_payment_txn
 class EmployeeRole(models.TextChoices):
     SUPER_ADMIN = "SUPER_ADMIN", "Super Admin"
     CUSTOMER = "CUSTOMER", "Customer"
@@ -142,44 +145,156 @@ class LeaveBalance(models.Model):
 
 
 class PayrollSlip(models.Model):
+    STATUS = (
+        ("DRAFT", "Draft"),
+        ("CONFIRMED", "Confirmed (Accrued)"),
+        ("PAID", "Paid"),
+    )
+
     employee = models.ForeignKey(Employee, on_delete=models.CASCADE)
     month = models.DateField(help_text="1st of the payroll month")
-    base_salary = models.DecimalField(max_digits=10, decimal_places=2)
+
+    base_salary = models.DecimalField(max_digits=12, decimal_places=2)
     present_days = models.PositiveIntegerField()
     absent_days = models.PositiveIntegerField()
     leaves_paid = models.PositiveIntegerField(default=0)
-    deductions = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    net_salary = models.DecimalField(max_digits=10, decimal_places=2)
-    voucher = models.ForeignKey(Account, on_delete=models.PROTECT)
+    deductions = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    net_salary = models.DecimalField(max_digits=12, decimal_places=2)
 
+    # --- Hordak integration (no vouchers) ---
+    # Optional per-slip overrides; if not set, resolve from company defaults
+    expense_account = models.ForeignKey(
+        Account,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        help_text="Expense account to DR on confirmation (e.g., Wages Expense).",
+        related_name="payroll_expense_dr",
+    )
+    payable_account = models.ForeignKey(
+        Account,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        help_text="Liability to CR on confirmation and DR on payment (e.g., Salaries Payable).",
+        related_name="payroll_payable_liab",
+    )
+    payment_account = models.ForeignKey(
+        Account,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        help_text="Cash/Bank to CR on payment.",
+        related_name="payroll_cash_cr",
+    )
+
+    # Posted transactions
+    accrual_txn = models.ForeignKey(
+        Transaction,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="payroll_accruals",
+        help_text="Hordak transaction created on confirmation.",
+    )
+    payment_txn = models.ForeignKey(
+        Transaction,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="payroll_payments",
+        help_text="Hordak transaction created on payment.",
+    )
+
+    status = models.CharField(max_length=12, choices=STATUS, default="DRAFT")
     created_on = models.DateTimeField(auto_now_add=True)
 
-    def save(self, *args, **kwargs):
-        total_days = self.present_days + self.absent_days
-        per_day = (self.base_salary / total_days) if total_days else Decimal('0')
-        unpaid_absent = max(self.absent_days - self.leaves_paid, 0)
-        self.net_salary = self.base_salary - (per_day * unpaid_absent) - self.deductions
-        super().save(*args, **kwargs)
-
-        if not self.voucher:
-            VoucherType.objects.get_or_create(code="PAY", name="Payroll")
-            company = Company.objects.first()
-            if company and company.payroll_expense_account and company.payroll_payment_account:
-                voucher = create_voucher_for_transaction(
-                    voucher_type_code="PAY",
-                    date=self.month,
-                    amount=self.net_salary,
-                    narration=f"Payroll for {self.employee.name} - {self.month.strftime('%B %Y')}",
-                    debit_account=company.payroll_expense_account,
-                    credit_account=company.payroll_payment_account,
-                    created_by=getattr(self, 'created_by', None),
-                    branch=getattr(self, 'branch', None),
-                )
-                self.voucher = voucher
-                super().save(update_fields=['voucher'])
+    class Meta:
+        unique_together = ("employee", "month")
+        ordering = ("-month", "-id")
 
     def __str__(self):
-        return f"{self.employee.name} - {self.month.strftime('%B %Y')}"
+        return f"{self.employee} - {self.month.strftime('%B %Y')}"
+
+    # --- internal helpers ---
+    def _resolve_accounts(self):
+        """
+        Resolve accounts from per-slip override or from company settings.
+        Implement your own company-level resolution if needed.
+        """
+        exp = self.expense_account
+        pay = self.payable_account
+        cash = self.payment_account
+
+        # Example if you have company defaults:
+        # company = getattr(self.employee, "company", None) or Company.objects.first()
+        # if not exp and company: exp = company.payroll_expense_account
+        # if not pay and company: pay = company.payroll_payable_account
+        # if not cash and company: cash = company.payroll_payment_account
+
+        return exp, pay, cash
+
+    # --- calculations ---
+    def _compute_net(self) -> Decimal:
+        total_days = self.present_days + self.absent_days
+        per_day = (self.base_salary / total_days) if total_days else Decimal("0")
+        unpaid_absent = max(self.absent_days - (self.leaves_paid or 0), 0)
+        return self.base_salary - (per_day * unpaid_absent) - (self.deductions or 0)
+
+    def clean(self):
+        # recompute net for validation consistency
+        self.net_salary = self._compute_net()
+        if self.net_salary <= 0:
+            raise ValidationError("Net salary must be greater than 0.")
+
+    def save(self, *args, **kwargs):
+        self.net_salary = self._compute_net()
+        super().save(*args, **kwargs)
+
+    # --- domain actions ---
+    @transaction.atomic
+    def confirm(self):
+        if self.status != "DRAFT":
+            raise ValidationError("Only DRAFT slips can be confirmed.")
+        exp, pay, _cash = self._resolve_accounts()
+        if not exp or not pay:
+            raise ValidationError("Expense and Payable accounts are required to confirm payroll.")
+        if self.accrual_txn_id:
+            raise ValidationError("Accrual transaction already exists.")
+
+        desc = f"Payroll accrual for {self.employee} - {self.month.strftime('%B %Y')}"
+        txn = post_payroll_confirm_txn(
+            date=self.month if isinstance(self.month, date_cls) else timezone.now().date(),
+            description=desc,
+            amount=self.net_salary,
+            expense_account=exp,
+            payable_account=pay,
+        )
+        self.accrual_txn = txn
+        self.status = "CONFIRMED"
+        self.save(update_fields=["accrual_txn", "status"])
+
+    @transaction.atomic
+    def mark_paid(self, *, payment_date=None):
+        if self.status != "CONFIRMED":
+            raise ValidationError("Only CONFIRMED slips can be marked PAID.")
+        _exp, pay, cash = self._resolve_accounts()
+        if not pay or not cash:
+            raise ValidationError("Payable and Cash/Bank accounts are required to pay payroll.")
+        if self.payment_txn_id:
+            raise ValidationError("Payment transaction already exists.")
+
+        desc = f"Payroll payment for {self.employee} - {self.month.strftime('%B %Y')}"
+        txn = post_payroll_payment_txn(
+            date=payment_date or timezone.now().date(),
+            description=desc,
+            amount=self.net_salary,
+            payable_account=pay,
+            cash_bank_account=cash
+        )
+        self.payment_txn = txn
+        self.status = "PAID"
+        self.save(update_fields=["payment_txn", "status"])
 
 
 class Task(models.Model):

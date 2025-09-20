@@ -363,12 +363,13 @@ class SaleReturnAdmin(admin.ModelAdmin):
                             )
                             sr.refund_txn = rt
                             sr.refunded_amount = (sr.refunded_amount or 0) + refund
+                            sr.total_amount=sr.refunded_amount
                             sr.status = "REFUNDED" if sr.refunded_amount >= sr.returned_value else "PRODUCTS_RETURNED"
                         else:
                             # purely credit to A/R
                             sr.status = "CREDITED"
 
-                        sr.save(update_fields=["credit_note_txn","refund_txn","refunded_amount","status"])
+                        sr.save(update_fields=["credit_note_txn","refund_txn","refunded_amount","total_amount","status"])
                     self.message_user(request, "Payment/credit processed.", level=messages.SUCCESS)
                 except Exception as e:
                     self.message_user(request, f"Error: {e}", level=messages.ERROR)

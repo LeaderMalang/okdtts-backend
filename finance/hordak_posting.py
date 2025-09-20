@@ -5,7 +5,7 @@ from moneyed import Money
 from django.utils import timezone
 from django.conf import settings
 from contextlib import contextmanager
-
+from django.utils.text import slugify
 
 
 # You can keep these codes in settings
@@ -273,6 +273,7 @@ def post_sale_return(*, date, description, amount, tax=Decimal("0"),
         Leg.objects.create(transaction=txn, account=target, credit=as_money(amount,target))
         return txn
 
+
 @transaction.atomic
 def post_purchase_return(*, date, description, amount,
                          supplier_account, warehouse_purchase_account=None,
@@ -352,7 +353,7 @@ def post_customer_refund(*, date, description, customer_account, amount, warehou
     
 
 
-
+@transaction.atomic
 def post_sale_return_credit_note(*, date, description, base_amount, tax_amount,
                                  customer_account, sales_return_account, output_tax_account=None):
     """
@@ -369,7 +370,7 @@ def post_sale_return_credit_note(*, date, description, base_amount, tax_amount,
             Leg.objects.create(transaction=txn, account=output_tax_account, debit=as_money(tax, output_tax_account))
         Leg.objects.create(transaction=txn, account=customer_account, credit=as_money(total, customer_account))
         return txn
-
+@transaction.atomic
 def post_sale_return_refund_cash(*, date, description, amount, customer_account, cash_bank_account):
     """
     DR A/R
@@ -379,7 +380,7 @@ def post_sale_return_refund_cash(*, date, description, amount, customer_account,
         Leg.objects.create(transaction=txn, account=customer_account, debit=as_money(amount, customer_account))
         Leg.objects.create(transaction=txn, account=cash_bank_account, credit=as_money(amount, cash_bank_account))
         return txn
-
+@transaction.atomic
 def reverse_txn_generic(original_txn, memo=""):
     desc = f"Reversal of {original_txn.description or original_txn.pk}"
     if memo: desc += f". {memo}"
@@ -393,3 +394,131 @@ def reverse_txn_generic(original_txn, memo=""):
             else:
                 Leg.objects.create(transaction=rv, account=leg.account, debit=money)
         return rv
+
+@transaction.atomic
+def post_expense_txn(
+    *,
+    date,
+    description: str,
+    amount: Decimal,
+    expense_account: Account,
+    payment_account: Account,
+    currency: str = "PKR",
+) -> Transaction:
+    """
+    DR Expense (expense_account) / CR Cash-Bank (payment_account).
+    Returns the created hordak Transaction.
+    """
+    money = Money(Decimal(amount or 0), currency)
+    if money.amount <= 0:
+        raise ValueError("Expense amount must be > 0")
+
+    with hordak_tx(description=description or "Expense", posted_at=date or timezone.now()) as txn:
+        # DR Expense
+        Leg.objects.create(transaction=txn, account=expense_account, debit=money)
+        # CR Cash/Bank
+        Leg.objects.create(transaction=txn, account=payment_account, credit=money)
+        return txn
+
+
+
+
+def _expense_type():
+    # Hordak exposes typed choices; fall back to string if needed
+    try:
+        return Account.TYPES.expense
+    except AttributeError:
+        return "expense"
+
+def get_or_create_expenses_root() -> Account:
+    """
+    Find or create a top-level 'Expenses' root account (type=expense).
+    This acts as the parent for category-specific expense accounts.
+    """
+    acc_type = _expense_type()
+    root = (Account.objects
+            .filter(type=acc_type, parent__isnull=True, name__iexact="Ex")
+            .first())
+    if root:
+        return root
+    
+    # Create a clean root if not present
+    return Account.objects.create(
+        name="Expenses",
+        code="EXP",
+        type=acc_type,
+        parent=None,
+    )
+
+@transaction.atomic
+def ensure_category_expense_account(category_name: str) -> Account:
+    """
+    Ensure a dedicated expense Account exists under 'Expenses' for the given category name.
+    Name = category_name; parent = Expenses (root); type = expense.
+    Idempotent (returns existing if found).
+    """
+    acc_type = _expense_type()
+    parent = get_or_create_expenses_root()
+
+    # Try exact name match under the same parent
+    existing = Account.objects.filter(
+        parent=parent, type=acc_type, name=category_name
+    ).first()
+    if existing:
+        return existing
+
+    # Create new child account
+    code = f"EXP-{slugify(category_name)[:30].upper()}"  # short stable code
+    return Account.objects.create(
+        name=category_name[4:8],
+        code=code[0:6],
+        type=acc_type,
+        parent=parent
+    )
+
+
+
+@transaction.atomic
+def post_payroll_confirm_txn(
+    *,
+    date,
+    description: str,
+    amount: Decimal,
+    expense_account: Account,      # DR
+    payable_account: Account,      # CR (salary payable)
+    
+) -> Transaction:
+    """
+    CONFIRM payroll (accrual):
+        DR Wages/Salaries Expense
+        CR Salaries Payable (Liability)
+    """
+    money_debit = as_money(amount, expense_account)
+    money_credit = as_money(amount, payable_account)
+    with hordak_tx(description=description or "Payroll accrual", posted_at=date or timezone.now()) as txn:
+        Leg.objects.create(transaction=txn, account=expense_account, debit=money_debit)
+        Leg.objects.create(transaction=txn, account=payable_account, credit=money_credit)
+        return txn
+
+
+@transaction.atomic
+def post_payroll_payment_txn(
+    *,
+    date,
+    description: str,
+    amount: Decimal,
+    payable_account: Account,      # DR
+    cash_bank_account: Account,    # CR
+ 
+) -> Transaction:
+    """
+    PAY payroll:
+        DR Salaries Payable
+        CR Cash/Bank
+    """
+    money_debit = as_money(amount, payable_account)
+    money_credit = as_money(amount, cash_bank_account)
+    with hordak_tx(description=description or "Payroll payment", posted_at=date or timezone.now()) as txn:
+        Leg.objects.create(transaction=txn, account=payable_account, debit=money_debit)
+        Leg.objects.create(transaction=txn, account=cash_bank_account, credit=money_credit)
+        return txn
