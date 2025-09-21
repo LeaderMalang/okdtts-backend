@@ -13,9 +13,13 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+    ports:
+      - "5432:5432"  
   web:
     build: .
-    command: gunicorn erp.wsgi:application --bind 0.0.0.0:8000
+    # command: gunicorn django_ledger_project.wsgi:application --bind 0.0.0.0:8000
+    environment:
+      DJANGO_SETTINGS_MODULE: django_ledger_project.settings  # make this explicit
     volumes:
       - static_volume:/app/static
     ports:
