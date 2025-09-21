@@ -132,7 +132,7 @@ if ENV == 'live':
     DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": os.getenv("POSTGRES_DB", "oktts"),
+        "NAME": os.getenv("POSTGRES_DB", "oktts1"),
         "USER": os.getenv("POSTGRES_USER", "oktts"),
         "PASSWORD": os.getenv("POSTGRES_PASSWORD", "oktts"),
         "HOST": os.getenv("POSTGRES_HOST", "db"),
@@ -143,7 +143,7 @@ else:
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",
-            "NAME": 'local_oktts',
+            "NAME": 'new_db',
             "USER": 'postgres',
             "PASSWORD": 'openpgpwd',
             "HOST": '127.0.0.1',
