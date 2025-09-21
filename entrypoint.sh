@@ -14,7 +14,7 @@ echo "✅ Postgres is up!"
 
 # Safe migrations
 #python manage.py makemigrations user hr crm ecommerce expense finance inventory investor notification pricing purchase report sale setting syncqueue task voucher  --noinput
-python manage.py migrate --noinput
+#python manage.py migrate --noinput
 
 # Seed data (idempotent commands)
 # python manage.py init_accounting 
