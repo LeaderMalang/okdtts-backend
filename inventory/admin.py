@@ -2,7 +2,7 @@
 from __future__ import annotations
 from django.contrib import admin
 from .models import Product, Party, Batch, StockMovement, PriceList, PriceListItem
-from .forms import PartyForm
+# from .forms import PartyForm
 from decimal import Decimal, InvalidOperation
 from io import BytesIO
 from typing import Any, Dict
@@ -15,7 +15,7 @@ from django.utils.text import slugify
 from openpyxl import Workbook, load_workbook
 from .models import Product
 from inventory.models import Company, Group, Distributor  # adjust path if different
-
+from hordak.models import Account
 
 def _norm_header(h: str) -> str:
     return slugify((h or "").strip()).replace("-", "_")
@@ -283,9 +283,30 @@ class ProductAdmin(admin.ModelAdmin):
         resp["Content-Disposition"] = 'attachment; filename="products_import_template.xlsx"'
         return resp
 
+
+
+# ---- Custom field that avoids Account.__str__ (no get_balance calls) ----
+class AccountNoBalanceField(forms.ModelChoiceField):
+    def label_from_instance(self, obj):
+        # Light label: no DB-heavy balance lookups
+        code = getattr(obj, "code", "") or obj.pk
+        return f"{obj.name} [{code}]"
+    
+class PartyAdminForm(forms.ModelForm):
+    chart_of_account = AccountNoBalanceField(
+        queryset=Account.objects.only("id", "name", "code")
+                 .filter(type__in=[getattr(Account.TYPES, "Asset", "Asset"),getattr(Account.TYPES, "Liabliity", "Liabliity")]),  # assuming AR/AP are under these types
+        required=False,
+        label="Ledger (AR/AP)",
+    )
+
+    class Meta:
+        model = Party
+        fields = "__all__"
+
 @admin.register(Party)
 class PartyAdmin(admin.ModelAdmin):
-    form = PartyForm
+    form = PartyAdminForm
     list_display = (
         'name',
         'party_type',
@@ -299,7 +320,7 @@ class PartyAdmin(admin.ModelAdmin):
     )
     search_fields = ('name', 'phone', 'category')
     list_filter = ('party_type',)
-
+    
 @admin.register(Batch)
 class BatchAdmin(admin.ModelAdmin):
     list_display = ('product', 'batch_number', 'expiry_date', 'stock', 'rate')

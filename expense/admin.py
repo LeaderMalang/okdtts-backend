@@ -2,11 +2,53 @@
 from django.contrib import admin, messages
 from django.db import transaction
 from .models import Expense, ExpenseCategory
-
+from django import forms
 from finance.hordak_posting import ensure_category_expense_account
+from hordak.models import Account
 
+
+# ---- Custom field that avoids Account.__str__ (no get_balance calls) ----
+class AccountNoBalanceField(forms.ModelChoiceField):
+    def label_from_instance(self, obj):
+        # Light label: no DB-heavy balance lookups
+        code = getattr(obj, "code", "") or obj.pk
+        return f"{obj.name} [{code}]"
+
+# ---- Forms ----
+class ExpenseCategoryAdminForm(forms.ModelForm):
+    default_expense_account = AccountNoBalanceField(
+        queryset=Account.objects.only("id", "name", "code").filter(type=getattr(Account.TYPES, "expense", "expense")),
+        required=False,
+        label="Default expense account",
+    )
+    class Meta:
+        model = ExpenseCategory
+        fields = "__all__"
+
+class ExpenseAdminForm(forms.ModelForm):
+    expense_account  = AccountNoBalanceField(
+        queryset=Account.objects.only("id", "name", "code").filter(type=getattr(Account.TYPES, "expense", "expense")),
+        required=True,
+        label="Expense (DR)",
+    )
+    payment_account  = AccountNoBalanceField(
+        queryset=Account.objects.only("id", "name", "code").filter(type=getattr(Account.TYPES, "asset", "asset")),  # bank/cash are assets in most charts
+        required=True,
+        label="Payment (CR)",
+    )
+    # if you also added payable_account to Expense, include it similarly:
+    # payable_account = AccountNoBalanceField(
+    #     queryset=Account.objects.only("id", "name", "code").filter(type=getattr(Account.TYPES, "liability", "liability")),
+    #     required=False,
+    #     label="Payable (CR/DR)",
+    # )
+
+    class Meta:
+        model = Expense
+        fields = "__all__"
 @admin.register(ExpenseCategory)
 class ExpenseCategoryAdmin(admin.ModelAdmin):
+    form = ExpenseCategoryAdminForm
     list_display = ("name", "default_expense_account")
     search_fields = ("name",)
 
@@ -23,6 +65,7 @@ class ExpenseCategoryAdmin(admin.ModelAdmin):
 
 @admin.register(Expense)
 class ExpenseAdmin(admin.ModelAdmin):
+    form = ExpenseAdminForm
     list_display = (
         "id",
         "date",
