@@ -32,7 +32,7 @@ class ExpenseAdminForm(forms.ModelForm):
         label="Expense (DR)",
     )
     payment_account  = AccountNoBalanceField(
-        queryset=Account.objects.only("id", "name", "code").filter(type=getattr(Account.TYPES, "asset", "asset")),  # bank/cash are assets in most charts
+        queryset=Account.objects.only("id", "name", "code").filter(id__in=[2,3]),  # bank/cash are assets in most charts
         required=True,
         label="Payment (CR)",
     )
