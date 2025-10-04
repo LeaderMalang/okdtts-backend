@@ -12,6 +12,9 @@ from django.http import HttpResponse
 from django.template.loader import render_to_string
 from xhtml2pdf import pisa
 from django.db import transaction
+from hordak.models import Account
+from django import forms
+
 @admin.register(Employee)
 class EmployeeAdmin(admin.ModelAdmin):
     list_display = ('name', 'phone', 'active')
@@ -75,9 +78,55 @@ def print_invoice_pdf(modeladmin, request, queryset):
     return HttpResponse("Please select only one invoice to print.")
 print_invoice_pdf.short_description = "Print Payroll PDF"
 
+# ---------- Lightweight Account field (no balance lookup) ----------
+class AccountNoBalanceField(forms.ModelChoiceField):
+    def label_from_instance(self, obj):
+        # Do NOT call str(obj); Hordak's __str__ hits get_balance()
+        code = getattr(obj, "code", "") or obj.pk
+        return f"{obj.name} [{code}]"
+
+
+
+def _type_value(kind: str) -> str:
+    """
+    Map logical kind -> Hordak Account.TYPES value with safe fallback.
+    kind in {"expense", "liability", "asset"}.
+    """
+    try:
+        return getattr(Account.TYPES, kind)
+    except Exception:
+        return kind  # Hordak also accepts the raw string types
+
+
+# ---------- ModelForm that uses the lightweight field & filtered querysets ----------
+class PayrollSlipAdminForm(forms.ModelForm):
+    expense_account = AccountNoBalanceField(
+        queryset=Account.objects.only("id", "name", "code")
+                 .filter(type=_type_value("expense")),
+        required=False,
+        label="Expense (DR on confirm)",
+    )
+    payable_account = AccountNoBalanceField(
+        queryset=Account.objects.only("id", "name", "code")
+                 .filter(type=_type_value("liability")),
+        required=False,
+        label="Payable (CR on confirm / DR on payment)",
+    )
+    payment_account = AccountNoBalanceField(
+        queryset=Account.objects.only("id", "name", "code")
+                 .filter(type=_type_value("asset")),
+        required=False,
+        label="Cash/Bank (CR on payment)",
+    )
+
+    class Meta:
+        model = PayrollSlip
+        fields = "__all__"
+
 
 @admin.register(PayrollSlip)
 class PayrollSlipAdmin(admin.ModelAdmin):
+    form = PayrollSlipAdminForm
     list_display = (
         "employee", "month", "base_salary", "present_days", "absent_days",
         "deductions", "net_salary", "status", "pdf_link",
