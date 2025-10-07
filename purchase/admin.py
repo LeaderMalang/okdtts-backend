@@ -15,7 +15,7 @@ from .models import (
 )
 from inventory.models import Batch, StockMovement
 from decimal import Decimal
-from .admin_forms import RefundCreditBreakdownForm,PaymentCreditBreakdownForm,GRNLineFormSet
+from .admin_forms import RefundCreditBreakdownForm,PaymentCreditBreakdownForm,GRNLineFormSet,PurchaseInvoiceItemForm,PurchaseInvoiceItemFormSet
 from django.urls import path, reverse
 from django.shortcuts import render, redirect,get_object_or_404
 from django.utils.translation import gettext_lazy as _
@@ -24,45 +24,20 @@ from django.utils.dateformat import format as date_format
 from django.db.models import Sum
 from django.core.exceptions import ValidationError
 from .helpers import grn_returnable_map
-class PurchaseInvoiceItemForm(forms.ModelForm):
-    class Meta:
-        model = PurchaseInvoiceItem
-        fields = (
-            "product",
-            "batch_number",
-            "expiry_date",
-            "quantity",
-            "purchase_price",
-            "sale_price",
-            "amount",
-        )
-        widgets = {
-            "expiry_date": forms.DateInput(attrs={"type": "date"}),
-        }
-
-    def clean(self):
-        data = super().clean()
-        qty = data.get("quantity") or 0
-        rate = data.get("purchase_price") or 0
-        if qty and rate and not data.get("amount"):
-            data["amount"] = qty * rate
-        return data
 
 
+# --- PurchaseInvoiceItemInline ---
 class PurchaseInvoiceItemInline(admin.TabularInline):
     model = PurchaseInvoiceItem
     form = PurchaseInvoiceItemForm
+    formset = PurchaseInvoiceItemFormSet
     extra = 1
     autocomplete_fields = ["product"]
-    fields = (
-        "product",
-        "batch_number",
-        "expiry_date",
-        "quantity",
-        "purchase_price",
-        "sale_price",
-        "amount",
-    )
+    fields = ("product", "quantity", "purchase_price", "sale_price", "batch_number", "expiry_date", "line_total")
+    # readonly_fields = ("line_total",)
+
+    class Media:
+        js = ("purchase/purchase_totals.js",)  # see step 4
 
 
 # --- PDF Helper ---
@@ -125,6 +100,7 @@ class PurchaseInvoiceAdmin(admin.ModelAdmin):
     list_filter = ("status", "payment_status", "date", "supplier")
     search_fields = ("invoice_no", "company_invoice_number", "supplier__name")
     autocomplete_fields = ("supplier", "warehouse")
+    readonly_fields = ("total_amount", "grand_total",) 
     inlines = [PurchaseInvoiceItemInline]
     actions = ["action_confirm", "action_receive", "action_mark_paid","print_invoice_pdf",action_settle_with_breakdown,cancel_purchase_invoices]
 
@@ -371,7 +347,19 @@ class PurchaseInvoiceAdmin(admin.ModelAdmin):
             inv.confirm()
             self.message_user(request, "Confirmed.", level=messages.SUCCESS)
         return redirect(reverse("admin:purchase_purchaseinvoice_change", args=[inv.pk]))
+    def save_formset(self, request, form, formset, change):
+        # Save items first, then recompute totals
+        instances = formset.save(commit=False)
+        for obj in instances:
+            obj.save()
+        # delete removed rows
+        for obj in formset.deleted_objects:
+            obj.delete()
+        formset.save_m2m()
 
+        # Now recompute on the parent
+        parent = form.instance
+        parent.recalc_totals(save=True)
 
     # def obj_receive_view(self, request, object_id):
     #     if request.method != "POST":

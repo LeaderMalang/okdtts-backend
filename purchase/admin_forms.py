@@ -1,6 +1,8 @@
 from decimal import Decimal, ROUND_HALF_UP
 from django import forms
 from django.forms import formset_factory
+from django.forms.models import BaseInlineFormSet
+from .models import PurchaseInvoiceItem
 Q = Decimal("0.01")
 
 class RefundCreditBreakdownForm(forms.Form):
@@ -73,3 +75,42 @@ class GRNLineForm(forms.Form):
     sale_price      = forms.DecimalField(required=False, max_digits=10, decimal_places=2)
 
 GRNLineFormSet = formset_factory(GRNLineForm, extra=0)
+
+
+
+class PurchaseInvoiceItemForm(forms.ModelForm):
+    line_total = forms.DecimalField(max_digits=14, decimal_places=2, required=False, disabled=True, label="Line Total")
+
+    class Meta:
+        model = PurchaseInvoiceItem
+        fields = ("product", "quantity", "purchase_price", "sale_price", "batch_number", "expiry_date")
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        ins = self.instance if hasattr(self, "instance") else None
+        if ins and getattr(ins, "pk", None):
+            # Prefill from saved amount (authoritative)
+            amt = getattr(ins, "amount", None)
+            if amt is None:
+                # fallback compute if amount wasn’t set for some reason
+                q = Decimal(ins.quantity or 0)
+                p = Decimal(ins.purchase_price or 0)
+                amt = (q * p).quantize(Decimal("0.01"))
+            self.fields["line_total"].initial = amt
+        else:
+            # new/extra rows default 0.00
+            self.fields["line_total"].initial = Decimal("0.00")
+    def clean(self):
+        cd = super().clean()
+        qty = Decimal(cd.get("quantity") or 0)
+        price = Decimal(cd.get("purchase_price") or 0)
+        if qty < 0 or price < 0:
+            raise forms.ValidationError("Quantity and Purchase Price must be non-negative.")
+        cd["line_total"] = (qty * price).quantize(Decimal("0.01"))
+        return cd
+
+
+class PurchaseInvoiceItemFormSet(BaseInlineFormSet):
+    def clean(self):
+        super().clean()
+        # Optional: cross-row validation if needed
+        return self

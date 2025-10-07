@@ -7,7 +7,7 @@ from utils.voucher import create_voucher_for_transaction
 from finance.models import PaymentTerm, PaymentSchedule
 from datetime import timedelta
 from setting.constants import TAX_RECEIVABLE_ACCOUNT_CODE
-from decimal import Decimal
+from decimal import Decimal,ROUND_HALF_UP
 from django.db import transaction
 # from utils.voucher import post_composite_purchase_voucher,post_composite_purchase_return_voucher
 from finance.hordak_posting import post_purchase,post_purchase_return,post_supplier_payment_reverse,reverse_txn_purchase
@@ -325,6 +325,18 @@ class PurchaseInvoice(models.Model):
             out[it["id"]] = max(ordered - got, 0)
         return out
     
+    @transaction.atomic
+    def recalc_totals(self, *, save=True):
+        items = self.items.all()  # related_name on PurchaseInvoiceItem -> "items"
+        total = sum((it.quantity or 0) * (it.purchase_price or Decimal("0")) for it in items)
+        self.total_amount = (Decimal(total) or Decimal("0")).quantize(Decimal("0.01"))
+
+        # Basic grand total formula; adjust as your app needs
+        gt = self.total_amount - (self.discount or 0)  + (self.tax or 0)
+        self.grand_total = (gt if gt is not None else Decimal("0")).quantize(Decimal("0.01"))
+
+        if save:
+            self.save(update_fields=["total_amount", "grand_total"])
 
     @transaction.atomic
     def cancel(self, *, reason="User requested cancellation", strict=True):
@@ -394,7 +406,19 @@ class PurchaseInvoiceItem(models.Model):
     discount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     amount = models.DecimalField(max_digits=12, decimal_places=2)
     # net_amount = models.DecimalField(max_digits=12, decimal_places=2)
+    def _compute_amount(self):
+        q = Decimal(self.quantity or 0)
+        p = Decimal(self.purchase_price or 0)
+        return (q * p).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
+    def clean(self):
+        super().clean()
+        self.amount = self._compute_amount()
+
+    def save(self, *args, **kwargs):
+        if self.amount is None:
+            self.amount = self._compute_amount()
+        super().save(*args, **kwargs)
 
 def _cash_or_bank_for(warehouse):
     return warehouse.default_cash_account or warehouse.default_bank_account
@@ -717,8 +741,7 @@ class PurchaseReturn(models.Model):
             self._sync_payment_status()
             super().save(update_fields=["status", "payment_status", "refunded_amount", "confirm_txn_id", "refund_txn_id"])
 
-
-
+    
 
 class PurchaseReturnItem(models.Model):
     return_invoice = models.ForeignKey(PurchaseReturn, related_name="items", on_delete=models.CASCADE)
