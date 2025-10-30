@@ -4,7 +4,7 @@ from rest_framework.response import Response
 
 from .models import FinancialYear, PaymentSchedule
 from .serializers import FinancialYearSerializer, PaymentScheduleSerializer
-from utils.voucher import create_voucher_for_transaction
+# from utils.voucher import create_voucher_for_transaction
 
 
 class PaymentScheduleViewSet(viewsets.ModelViewSet):
@@ -24,28 +24,28 @@ class PaymentScheduleViewSet(viewsets.ModelViewSet):
                     invoice.status = "Paid"
                 invoice.save(update_fields=["paid_amount", "status"])
 
-                if schedule.purchase_invoice:
-                    voucher = create_voucher_for_transaction(
-                        voucher_type_code="PIN",
-                        date=invoice.date,
-                        amount=schedule.amount,
-                        narration=f"Installment payment for Purchase Invoice {invoice.invoice_no}",
-                        debit_account=invoice.supplier.chart_of_account,
-                        credit_account=invoice.warehouse.default_cash_account or invoice.warehouse.default_bank_account,
-                        created_by=getattr(invoice, "created_by", None),
-                        branch=getattr(invoice, "branch", None),
-                    )
-                else:
-                    voucher = create_voucher_for_transaction(
-                        voucher_type_code="SIN",
-                        date=invoice.date,
-                        amount=schedule.amount,
-                        narration=f"Installment payment for Sale Invoice {invoice.invoice_no}",
-                        debit_account=invoice.warehouse.default_cash_account or invoice.warehouse.default_bank_account,
-                        credit_account=invoice.customer.chart_of_account,
-                        created_by=getattr(invoice, "created_by", None),
-                        branch=getattr(invoice, "branch", None),
-                    )
+                # if schedule.purchase_invoice:
+                #     voucher = create_voucher_for_transaction(
+                #         voucher_type_code="PIN",
+                #         date=invoice.date,
+                #         amount=schedule.amount,
+                #         narration=f"Installment payment for Purchase Invoice {invoice.invoice_no}",
+                #         debit_account=invoice.supplier.chart_of_account,
+                #         credit_account=invoice.warehouse.default_cash_account or invoice.warehouse.default_bank_account,
+                #         created_by=getattr(invoice, "created_by", None),
+                #         branch=getattr(invoice, "branch", None),
+                #     )
+                # else:
+                #     voucher = create_voucher_for_transaction(
+                #         voucher_type_code="SIN",
+                #         date=invoice.date,
+                #         amount=schedule.amount,
+                #         narration=f"Installment payment for Sale Invoice {invoice.invoice_no}",
+                #         debit_account=invoice.warehouse.default_cash_account or invoice.warehouse.default_bank_account,
+                #         credit_account=invoice.customer.chart_of_account,
+                #         created_by=getattr(invoice, "created_by", None),
+                #         branch=getattr(invoice, "branch", None),
+                #     )
                 schedule.voucher = voucher
                 schedule.save(update_fields=["voucher"])
         serializer = self.get_serializer(schedule)

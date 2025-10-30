@@ -27,12 +27,12 @@ class ExpenseCategoryAdminForm(forms.ModelForm):
 
 class ExpenseAdminForm(forms.ModelForm):
     expense_account  = AccountNoBalanceField(
-        queryset=Account.objects.only("id", "name", "code").filter(type=getattr(Account.TYPES, "expense", "expense")),
+        queryset=Account.objects.only( "name").filter(type=getattr(Account.TYPES, "expense", "expense")),
         required=True,
         label="Expense (DR)",
     )
     payment_account  = AccountNoBalanceField(
-        queryset=Account.objects.only("id", "name", "code").filter(id__in=[2,3]),  # bank/cash are assets in most charts
+        queryset=Account.objects.only( "name").filter(id__in=[2,3]),  # bank/cash are assets in most charts
         required=True,
         label="Payment (CR)",
     )

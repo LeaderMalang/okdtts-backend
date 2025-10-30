@@ -1,9 +1,9 @@
 from django.db import models
 from inventory.models import Product, Party
 from setting.models import Warehouse
-from voucher.models import Voucher, ChartOfAccount, VoucherType
+# from voucher.models import Voucher, ChartOfAccount, VoucherType
 from utils.stock import stock_in, stock_return, stock_out,stock_out_exact_batch
-from utils.voucher import create_voucher_for_transaction
+
 from finance.models import PaymentTerm, PaymentSchedule
 from datetime import timedelta
 from setting.constants import TAX_RECEIVABLE_ACCOUNT_CODE

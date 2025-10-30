@@ -14,7 +14,7 @@ from .serializers import (
 )
 from inventory.models import Party, Product, Batch, PriceList, PriceListItem
 from expense.models import ExpenseCategory
-from voucher.models import ChartOfAccount
+# from voucher.models import ChartOfAccount
 from rest_framework.decorators import action
 
 
@@ -89,6 +89,6 @@ def management_all(request):
         "expense_categories": list(ExpenseCategory.objects.values()),
         "price_lists": list(PriceList.objects.values()),
         "price_list_items": list(PriceListItem.objects.values()),
-        "chart_of_accounts": list(ChartOfAccount.objects.values()),
+        # "chart_of_accounts": list(),
     }
     return Response(data)

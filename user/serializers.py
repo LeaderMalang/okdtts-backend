@@ -6,7 +6,7 @@ from inventory.models import Party
 from .models import CustomUser, PasswordResetCode
 from utils.geocode import reverse_geocode
 from setting.models import City, Area
-from voucher.models import ChartOfAccount
+# from voucher.models import ChartOfAccount
 class UserSerializer(serializers.ModelSerializer):
     """Serializer for the User model exposing basic fields."""
 

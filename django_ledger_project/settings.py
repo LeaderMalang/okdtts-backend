@@ -26,7 +26,7 @@ DATA_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024 * 1024
 FILE_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024 * 1024
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
-ENV= 'live'  # Set to 'production' in production environment
+ENV= 'dev'  # Set to 'production' in production environment
 LOGIN_URL = "/auth/login/"
 ALLOWED_HOSTS = ["207.180.252.117", "localhost","127.0.0.1","erp.okdtts.com"]
 CORS_ALLOW_CREDENTIALS = False
@@ -61,7 +61,6 @@ INSTALLED_APPS = [
     'hr',
     'setting',
     'inventory',
-    'voucher',
     'sale',
     'ecommerce',
     'purchase',
@@ -143,13 +142,23 @@ else:
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",
-            "NAME": 'new_db',
-            "USER": 'postgres',
-            "PASSWORD": 'openpgpwd',
-            "HOST": '127.0.0.1',
-            "PORT": 5433,
+            "NAME": 'oktts2',
+            "USER": 'oktts',
+            "PASSWORD": 'oktts',
+            "HOST": '207.180.252.117',
+            "PORT": 5432,
         }
     }
+    # DATABASES = {
+    #     "default": {
+    #         "ENGINE": "django.db.backends.postgresql",
+    #         "NAME": 'new_db',
+    #         "USER": 'postgres',
+    #         "PASSWORD": 'openpgpwd',
+    #         "HOST": '127.0.0.1',
+    #         "PORT": 5433,
+    #     }
+    # }
 
 
 # Password validation

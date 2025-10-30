@@ -15,7 +15,7 @@ from .models import (
 )
 from inventory.models import Batch, StockMovement
 from decimal import Decimal
-from .admin_forms import RefundCreditBreakdownForm,PaymentCreditBreakdownForm,GRNLineFormSet,PurchaseInvoiceItemForm,PurchaseInvoiceItemFormSet
+from .admin_forms import RefundCreditBreakdownForm,PaymentCreditBreakdownForm,GRNLineFormSet,PurchaseInvoiceItemForm,PurchaseInvoiceItemFormSet,PurchaseInvoiceForm
 from django.urls import path, reverse
 from django.shortcuts import render, redirect,get_object_or_404
 from django.utils.translation import gettext_lazy as _
@@ -94,8 +94,10 @@ def cancel_purchase_invoices(modeladmin, request, queryset):
         messages.success(request, f"Cancelled {success} invoice(s).")
     if failed:
         messages.warning(request, f"Failed to cancel {failed} invoice(s).")
+        
 @admin.register(PurchaseInvoice)
 class PurchaseInvoiceAdmin(admin.ModelAdmin):
+    form = PurchaseInvoiceForm
     list_display = ("invoice_no", "supplier", "date", "status", "payment_status", "grand_total", "paid_amount")
     list_filter = ("status", "payment_status", "date", "supplier")
     search_fields = ("invoice_no", "company_invoice_number", "supplier__name")

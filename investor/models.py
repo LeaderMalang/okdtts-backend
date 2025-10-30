@@ -1,7 +1,7 @@
 from django.db import models
 
-from voucher.models import ChartOfAccount
-from utils.voucher import create_voucher_for_transaction
+# from voucher.models import ChartOfAccount
+# from utils.voucher import create_voucher_for_transaction
 
 
 class InvestorTransaction(models.Model):
@@ -37,34 +37,34 @@ class InvestorTransaction(models.Model):
         "profit": {"debit": "PROFIT", "credit": None},
     }
 
-    def save(self, *args, **kwargs):
-        is_new = self.pk is None
-        super().save(*args, **kwargs)
+    # def save(self, *args, **kwargs):
+    #     is_new = self.pk is None
+    #     super().save(*args, **kwargs)
 
-        if is_new:
-            mapping = self.LEDGER_MAP.get(self.transaction_type)
-            if not mapping:
-                return
+    #     if is_new:
+    #         mapping = self.LEDGER_MAP.get(self.transaction_type)
+    #         if not mapping:
+    #             return
 
-            debit_account = (
-                self.investor.chart_of_account
-                if mapping["debit"] is None
-                else ChartOfAccount.objects.get(code=mapping["debit"])
-            )
-            credit_account = (
-                self.investor.chart_of_account
-                if mapping["credit"] is None
-                else ChartOfAccount.objects.get(code=mapping["credit"])
-            )
+    #         debit_account = (
+    #             self.investor.chart_of_account
+    #             if mapping["debit"] is None
+    #             # else ChartOfAccount.objects.get(code=mapping["debit"])
+    #         )
+    #         credit_account = (
+    #             self.investor.chart_of_account
+    #             if mapping["credit"] is None
+    #             # else ChartOfAccount.objects.get(code=mapping["credit"])
+    #         )
 
-            create_voucher_for_transaction(
-                voucher_type_code="INV",
-                date=self.date,
-                amount=self.amount,
-                narration=self.description or f"{self.transaction_type.title()} transaction",
-                debit_account=debit_account,
-                credit_account=credit_account,
-            )
+            # create_voucher_for_transaction(
+            #     voucher_type_code="INV",
+            #     date=self.date,
+            #     amount=self.amount,
+            #     narration=self.description or f"{self.transaction_type.title()} transaction",
+            #     debit_account=debit_account,
+            #     credit_account=credit_account,
+            # )
 
     def __str__(self):
         return f"{self.investor.name} - {self.amount}"

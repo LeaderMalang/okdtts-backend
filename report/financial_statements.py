@@ -12,7 +12,7 @@ from typing import Dict
 
 from django.db.models import Sum
 
-from voucher.models import VoucherEntry
+# from voucher.models import VoucherEntry
 
 
 def account_type_balances(*, start_date: date, end_date: date) -> Dict[str, Decimal]:
@@ -24,20 +24,20 @@ def account_type_balances(*, start_date: date, end_date: date) -> Dict[str, Deci
     their computed totals.
     """
 
-    entries = (
-        VoucherEntry.objects.filter(
-            voucher__date__gte=start_date, voucher__date__lte=end_date
-        )
-        .values("account__account_type__name")
-        .annotate(total_debit=Sum("debit"), total_credit=Sum("credit"))
-    )
+    # entries = (
+    #     VoucherEntry.objects.filter(
+    #         voucher__date__gte=start_date, voucher__date__lte=end_date
+    #     )
+    #     .values("account__account_type__name")
+    #     .annotate(total_debit=Sum("debit"), total_credit=Sum("credit"))
+    # )
 
-    totals: Dict[str, Decimal] = {}
-    for row in entries:
-        account_type = row["account__account_type__name"]
-        totals[account_type] = row["total_debit"] - row["total_credit"]
+    # totals: Dict[str, Decimal] = {}
+    # for row in entries:
+    #     account_type = row["account__account_type__name"]
+    #     totals[account_type] = row["total_debit"] - row["total_credit"]
 
-    return totals
+    return 0
 
 
 __all__ = ["account_type_balances"]

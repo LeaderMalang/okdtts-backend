@@ -74,12 +74,12 @@ class PaymentSchedule(models.Model):
     due_date = models.DateField()
     amount = models.DecimalField(max_digits=12, decimal_places=2)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="Pending")
-    voucher = models.ForeignKey(
-        'voucher.Voucher',
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-    )
+    # voucher = models.ForeignKey(
+    #     'voucher.Voucher',
+    #     on_delete=models.SET_NULL,
+    #     null=True,
+    #     blank=True,
+    # )
 
     def __str__(self):  # pragma: no cover - display helper
         invoice = self.purchase_invoice or self.sale_invoice

@@ -7,15 +7,15 @@ from inventory.models import Party, Product, Batch
 
 import logging
 
-from voucher.models import Voucher, ChartOfAccount, VoucherType
-from utils.voucher import create_voucher_for_transaction
+
+
 from utils.stock import stock_return, stock_out,stock_out_new
 from finance.models import PaymentTerm, PaymentSchedule
 from datetime import timedelta
 from setting.constants import TAX_PAYABLE_ACCOUNT_CODE
 from decimal import Decimal
 from django.db import transaction
-from utils.voucher import post_composite_sales_voucher,post_composite_sales_return_voucher
+
 
 from finance.models_receipts import CustomerReceipt
 from hordak.models import Transaction
