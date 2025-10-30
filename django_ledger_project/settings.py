@@ -26,7 +26,7 @@ DATA_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024 * 1024
 FILE_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024 * 1024
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
-ENV= 'dev'  # Set to 'production' in production environment
+ENV= 'live'  # Set to 'production' in production environment
 LOGIN_URL = "/auth/login/"
 ALLOWED_HOSTS = ["207.180.252.117", "localhost","127.0.0.1","erp.okdtts.com"]
 CORS_ALLOW_CREDENTIALS = False
@@ -131,7 +131,7 @@ if ENV == 'live':
     DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": os.getenv("POSTGRES_DB", "oktts1"),
+        "NAME": os.getenv("POSTGRES_DB", "oktts2"),
         "USER": os.getenv("POSTGRES_USER", "oktts"),
         "PASSWORD": os.getenv("POSTGRES_PASSWORD", "oktts"),
         "HOST": os.getenv("POSTGRES_HOST", "db"),
