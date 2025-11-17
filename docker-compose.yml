@@ -14,7 +14,9 @@ services:
       timeout: 3s
       retries: 20
     ports:
-      - "5432:5432"  
+      - "5432:5432"
+    networks:
+      - okdtts_net  
   web:
     build: .
     # command: gunicorn django_ledger_project.wsgi:application --bind 0.0.0.0:8000
@@ -26,6 +28,8 @@ services:
       - "8000:8000"
     depends_on:
       - db
+    networks:
+      - okdtts_net
 
   
 
@@ -40,7 +44,12 @@ services:
       - static_volume:/static
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
       - /etc/letsencrypt:/etc/letsencrypt:ro
+    networks:
+      - okdtts_net
 
 volumes:
   db_data:
   static_volume:
+networks:
+  okdtts_net:
+    external: true
