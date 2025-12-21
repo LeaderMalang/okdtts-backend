@@ -44,6 +44,7 @@ services:
       - static_volume:/static
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
       - /etc/letsencrypt:/etc/letsencrypt:ro
+      - /var/www/certbot:/var/www/certbot
     networks:
       - okdtts_net
 
